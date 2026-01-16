@@ -141,7 +141,6 @@ static bool parse_config_safely(const char* info, MP_Config *cfg)
         // 参数验证
         if (cfg->switchFlag > 1) cfg->switchFlag = 1;
         if (cfg->powerFlag > 1) cfg->powerFlag = 1;
-        
         return true;
     }
     
@@ -180,6 +179,8 @@ static void write_config(MP_Config *cfg)
     w_data += tmp;
     
     // 直接写入，不检查返回值
+    Serial.print("媒体播放器设置参数中：");
+    Serial.println(tmp);
     g_flashCfg.writeFile(MEDIA_CONFIG_PATH, w_data.c_str());
 }
 
@@ -187,20 +188,43 @@ static void read_config(MP_Config *cfg)
 {
     if (!cfg) return;
     
+    // 更详细的调试信息
+    Serial.println("Reading media player config...");
+    
     char info[256] = {0};
     uint16_t size = g_flashCfg.readFile(MEDIA_CONFIG_PATH, (uint8_t *)info);
     
-    if (size == 0 || size >= sizeof(info) - 1) {
+    // 检查读取结果
+    if (size == 0) {
+        Serial.println("Config file is empty or not found");
         set_default_config(cfg);
         write_config(cfg);
         return;
     }
     
-    info[size] = 0;
+    if (size >= sizeof(info)) {
+        Serial.println("Config file too large");
+        // 只处理有效部分
+        info[sizeof(info) - 1] = '\0';
+    } else {
+        info[size] = '\0';  // 确保以null结尾
+    }
     
+    // 调试输出读取的内容
+    Serial.print("Config content: ");
+    Serial.println(info);
+    Serial.print("Config size: ");
+    Serial.println(size);
+    
+    // 尝试解析配置
     if (!parse_config_safely(info, cfg)) {
+        Serial.println("Failed to parse config, using defaults");
         set_default_config(cfg);
         write_config(cfg);
+    } else {
+        Serial.println("Config parsed successfully");
+        Serial.printf("switchFlag: %u, powerFlag: %u\n", 
+                      cfg->switchFlag, cfg->powerFlag);
     }
 }
 
@@ -710,45 +734,54 @@ static void media_player_message_handle(const char *from, const char *to,
                                         APP_MESSAGE_TYPE type, void *message,
                                         void *ext_info)
 {
-    if (!message) return;
-    
-    switch (type) {
+    switch (type)
+    {
     case APP_MESSAGE_GET_PARAM:
     {
         char *param_key = (char *)message;
-        if (!strcmp(param_key, "switchFlag")) {
+        if (!strcmp(param_key, "switchFlag"))
+        {
             snprintf((char *)ext_info, 32, "%u", cfg_data.switchFlag);
         }
-        else if (!strcmp(param_key, "powerFlag")) {
+        else if (!strcmp(param_key, "powerFlag"))
+        {
             snprintf((char *)ext_info, 32, "%u", cfg_data.powerFlag);
         }
-        else {
+        else
+        {
             snprintf((char *)ext_info, 32, "%s", "NULL");
         }
-        break;
     }
+    break;
     case APP_MESSAGE_SET_PARAM:
     {
         char *param_key = (char *)message;
         char *param_val = (char *)ext_info;
-        if (!strcmp(param_key, "switchFlag")) {
-            cfg_data.switchFlag = atoi(param_val);
+        if (!strcmp(param_key, "switchFlag"))
+        {
+            cfg_data.switchFlag = atol(param_val);
         }
-        else if (!strcmp(param_key, "powerFlag")) {
-            cfg_data.powerFlag = atoi(param_val);
+        else if (!strcmp(param_key, "powerFlag"))
+        {
+            cfg_data.powerFlag = atol(param_val);
         }
-        break;
     }
+    break;
     case APP_MESSAGE_READ_CFG:
+    {
         read_config(&cfg_data);
-        break;
+    }
+    break;
     case APP_MESSAGE_WRITE_CFG:
+    {
         write_config(&cfg_data);
-        break;
+    }
+    break;
     default:
         break;
     }
 }
+
 
 APP_OBJ media_app = {MEDIA_PLAYER_APP_NAME, &app_movie, "",
                      media_player_init, media_player_process, media_player_background_task,
