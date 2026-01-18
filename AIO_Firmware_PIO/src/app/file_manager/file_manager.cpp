@@ -4,7 +4,7 @@
 #include "sys/app_controller.h"
 #include "network.h"
 #include "common.h"
-#include "ESP32FtpServer.h"
+#include <SimpleFTPServer.h>
 
 #define FILE_MANAGER_APP_NAME "File Manager"
 
