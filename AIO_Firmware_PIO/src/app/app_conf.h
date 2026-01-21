@@ -17,6 +17,13 @@
 #include "app/example/example.h"
 #endif
 
+// 照片管理器
+#define APP_PICTURE_MANAGER_USE 1
+#if APP_PICTURE_MANAGER_USE
+#include "app/picture_manager/picture_manager.h"
+#endif
+
+
 // 纪念日APP
 #define APP_ANNIVERSARY_USE 1
 #if APP_ANNIVERSARY_USE
@@ -99,13 +106,13 @@
 // 天气APP
 // 如flash空间不够，首选配置天气app二选一，腾出大量flash空间
 #define APP_WEATHER_USE 1
-#if APP_WEATHER_USE
+#if APP_WEATHER_USE 
 #include "app/weather/weather.h"
 #endif
 
 // 天气(旧)APP
 // 如flash空间不够，首选配置天气app二选一，腾出大量flash空间
-#define APP_WEATHER_OLD_USE 1
+#define APP_WEATHER_OLD_USE 0
 #if APP_WEATHER_OLD_USE
 #include "app/weather_old/weather_old.h"
 #endif
