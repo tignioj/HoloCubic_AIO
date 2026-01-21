@@ -9,9 +9,6 @@
 // 动态数据，APP的生命周期结束也需要释放它
 struct PictureManagerAppRunData
 {
-    unsigned int val1;
-    unsigned int val2;
-    unsigned int val3;
     boolean req_sent;
     boolean tcp_start;
     unsigned long apAlivePreMillis;       // 上一回更新的时间
@@ -20,11 +17,6 @@ struct PictureManagerAppRunData
 // 常驻数据，可以不随APP的生命周期而释放或删除
 struct PictureManagerAppForeverData
 {
-    unsigned int val1;
-    unsigned int val2;
-    unsigned int val3;
-
-
 };
 
 // 保存APP运行时的参数信息，理论上关闭APP时推荐在 xxx_exit_callback 中释放掉
@@ -40,13 +32,9 @@ static int picture_manager_init(AppController *sys)
     picture_manager_gui_init();
     // 初始化运行时参数
     run_data = (PictureManagerAppRunData *)calloc(1, sizeof(PictureManagerAppRunData));
-    run_data->val1 = 0;
-    run_data->val2 = 0;
-    run_data->val3 = 0;
     run_data->req_sent = false;
     run_data->tcp_start = false;
     // 使用 forever_data 中的变量，任何函数都可以用
-    Serial.print(forever_data.val1);
 
     // 如果有需要持久化配置文件 可以调用此函数将数据存在flash中
     // 配置文件名最好以APP名为开头 以".cfg"结尾，以免多个APP读取混乱
@@ -70,9 +58,9 @@ static void picture_manager_process(AppController *sys,
     if(!run_data->req_sent) {
         // 发送请求。如果是wifi相关的消息，当请求完成后自动会调用 picture_manager_message_handle 函数
         sys->send_to(PICTURE_MANAGER_APP_NAME, CTRL_NAME,
-                    APP_MESSAGE_WIFI_CONN, (void *)run_data->val1, NULL);
+                    APP_MESSAGE_WIFI_CONN,NULL, NULL);
         sys->send_to(PICTURE_MANAGER_APP_NAME, CTRL_NAME,
-                    APP_MESSAGE_WIFI_AP, (void *)run_data->val1, NULL);
+                    APP_MESSAGE_WIFI_AP, NULL, NULL);
         
         display_picture_manager_message("WiFi request send.");
         run_data->req_sent = true;

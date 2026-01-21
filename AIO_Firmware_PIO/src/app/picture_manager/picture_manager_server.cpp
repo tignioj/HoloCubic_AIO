@@ -16,9 +16,9 @@ static String currentUploadFilename;
 
 // 设置CORS头
 void setCorsHeaders() {
-    picture_manager_server->sendHeader("Access-Control-Allow-Origin", "*");
-    picture_manager_server->sendHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-    picture_manager_server->sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    // picture_manager_server->sendHeader("Access-Control-Allow-Origin", "*");
+    // picture_manager_server->sendHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    // picture_manager_server->sendHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
 // 处理OPTIONS请求（CORS预检）
@@ -323,6 +323,9 @@ void stop_picture_manager_server() {
         picture_manager_server->close();
         delete picture_manager_server;
         picture_manager_server = nullptr;
+    }
+    if(uploadFile) {
+        uploadFile.close();
     }
 }
 
