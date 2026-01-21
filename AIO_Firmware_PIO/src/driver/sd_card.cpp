@@ -2,7 +2,6 @@
 #include "SD_MMC.h"
 #include <string.h>
 #include "common.h"
-
 #define TF_VFS_IS_NULL(RET)                           \
     if (NULL == tf_vfs)                               \
     {                                                 \
@@ -14,6 +13,280 @@ int photo_file_num = 0;
 char file_name_list[DIR_FILE_NUM][DIR_FILE_NAME_MAX_LEN];
 
 static fs::FS *tf_vfs = NULL;
+
+/*
+ * get file basename
+ */
+static const char *get_file_basename(const char *path)
+{
+    // 获取最后一个'/'所在的下标
+    const char *ret = path;
+    for (const char *cur = path; *cur != 0; ++cur)
+    {
+        if (*cur == '/')
+        {
+            ret = cur + 1;
+        }
+    }
+    return ret;
+}
+
+
+// 声明一个互斥锁句柄（全局变量）
+SemaphoreHandle_t xSDCardMutex;
+// 从索引文件中加载目录，例如 "/movie/movie.txt"
+// 其中索引的内容是文件名称
+File_Info *load_files_from_index(const char* index_path, const char* index_folder)
+{
+    File index_file = tf.open(index_path);
+    if (!index_file) {
+        Serial.println("Index file not found, will scan directory");
+        return NULL;
+    }
+    
+    // 创建头节点（表示文件夹）
+    File_Info *head_file = (File_Info *)malloc(sizeof(File_Info));
+    if (!head_file) {
+        Serial.println("Memory allocation failed for head file");
+        index_file.close();
+        return NULL;
+    }
+    
+    head_file->file_type = FILE_TYPE_FOLDER;
+    head_file->file_name = strdup(index_folder);
+    head_file->front_node = NULL;
+    head_file->next_node = NULL;
+    
+    File_Info *tail_file = head_file;
+    char line[255]; 
+    int file_count = 0;
+    bool allocated_failed = false;
+    while (index_file.available()) {
+        int bytesRead = index_file.readBytesUntil('\n', line, sizeof(line)-1);
+        if (bytesRead > 0) {
+            line[bytesRead] = '\0';
+            // 去除换行符
+            if (bytesRead > 0 && line[bytesRead-1] == '\r') {
+                line[bytesRead-1] = '\0';
+                bytesRead--;
+            }
+            
+            // 跳过空行
+            if (bytesRead == 0) continue;
+            
+            // 验证文件实际存在
+            // char full_path[MAX_FILENAME_LENGTH];
+            // snprintf(full_path, sizeof(full_path), "%s/%s", MOVIE_PATH, line);
+            // 不要验证了，播放的时候再验证，不然每一个都验证相当于全盘扫面
+            // TODO 播放的时候验证文件是否存在，不存在则从索引里面删除
+            // if (!SD.exists(full_path)) {
+            //     Serial.printf("File in index not found: %s\n", full_path);
+            //     continue;
+            // }
+            
+            // 创建文件节点
+            File_Info *new_file = (File_Info *)malloc(sizeof(File_Info));
+            if (!new_file) {
+                Serial.println("Memory allocation failed for file info");
+                release_file_info(head_file); // 这个函数会把头节点也清理掉
+                allocated_failed = true;
+                // TODO 这里直接break掉了，之前分配的内存没有释放，有内存泄漏风险
+                break;
+            }
+            
+            new_file->file_name = strdup(line);
+            new_file->file_type = FILE_TYPE_FILE;
+            
+            // 添加到链表
+            tail_file->next_node = new_file;
+            new_file->front_node = tail_file;
+            new_file->next_node = NULL;
+            tail_file = new_file;
+            
+            file_count++;
+        }
+    }
+    
+    index_file.close();
+
+    if(allocated_failed) return NULL;
+
+    // 将链表设置为循环（与listDir保持一致）
+    if (head_file->next_node) {
+        // 将最后一个节点的next指向第一个文件节点
+        tail_file->next_node = head_file->next_node;
+        // 将第一个文件节点的front指向最后一个节点
+        head_file->next_node->front_node = tail_file;
+    } else {
+        // 如果没有文件，头节点自循环
+        head_file->next_node = head_file;
+        head_file->front_node = head_file;
+    }
+
+    Serial.printf("Loaded %d files from index\n", file_count);
+    return head_file;
+}
+
+
+// 纯更新索引，不创建链表，为了节省内存
+bool create_files_index(const char* path, const char* index_path) {
+    TF_VFS_IS_NULL(false)
+
+    Serial.printf("Listing directory: %s\n", path);
+
+    File root = tf_vfs->open(path);
+    if (!root)
+    {
+        Serial.println("Failed to open directory");
+        return false;
+    }
+    if (!root.isDirectory())
+    {
+        Serial.println("Not a directory");
+        return false;
+    }
+    // 创建索引文件
+    File index_file = tf.open(index_path, FILE_WRITE);
+    if (!index_file) {
+        Serial.println("Failed to create index file");
+        return false;
+    }
+
+   File file = root.openNextFile();
+    while (file)
+    {
+        const char *file_base_name = get_file_basename(file.name());
+        int filename_len = strlen(file_base_name);
+        if (filename_len > FILENAME_MAX_LEN - 10)
+        {
+            Serial.println("Filename is too long.");
+            file.close();
+            file = root.openNextFile();
+            continue;
+        }
+        // 跳过索引本身
+        if (strcmp(file_base_name, get_file_basename(index_path)) == 0)
+        {
+            file.close();
+            file = root.openNextFile();
+            continue;
+        }
+        // 写入索引文件
+        index_file.println(file_base_name); // 只写入文件名，不包含路径
+        file.close();
+        file = root.openNextFile();
+    }
+    index_file.close();
+    root.close();
+    Serial.println("Index file created successfully.");
+    return true;    
+}
+ 
+
+
+
+// TODO防止多线程访问
+// 更新索引-删除索引中的指定文件名称
+bool delete_line_from_index_file(const char* filepath, const char* filenameToDelete) {
+    if(!xSDCardMutex) {
+        Serial.println("互斥锁为空，无法操作！");
+        return false;
+    }
+     File sourceFile = SD.open(filepath, FILE_READ);
+    if (!sourceFile) {
+    Serial.println("错误：无法打开源文件进行读取。");
+    return false;
+  }
+
+  // 创建一个临时文件
+  String tempFilePath = String(filepath) + ".tmp";
+  File tempFile = SD.open(tempFilePath.c_str(), FILE_WRITE);
+  if (!tempFile) {
+    Serial.println("错误：无法创建临时文件。");
+    sourceFile.close();
+    return false;
+  }
+
+  String line;
+  bool lineFound = false;
+  
+  // 逐行读取源文件
+  while (sourceFile.available()) {
+    line = sourceFile.readStringUntil('\n');
+    line.trim(); // 去除换行符和空格
+
+    // 如果这一行不是要删除的文件名，则写入临时文件
+    if (line != String(filenameToDelete)) {
+      tempFile.println(line);
+    } else {
+      lineFound = true; // 标记找到了要删除的行
+    }
+  }
+
+  sourceFile.close();
+  tempFile.close();
+
+  // 删除原文件，并将临时文件重命名为原文件
+  if (!SD.remove(filepath)) {
+    Serial.println("错误：删除原文件失败。");
+    SD.remove(tempFilePath.c_str()); // 清理临时文件
+    return false;
+  }
+  if (!SD.rename(tempFilePath.c_str(), filepath)) {
+    Serial.println("错误：重命名临时文件失败。");
+    return false;
+  }
+
+  if (lineFound) {
+    Serial.println("指定行已成功删除。");
+  } else {
+    Serial.println("未找到指定的文件名。");
+  }
+  return true;
+}
+
+
+// 使用互斥锁保护你的文件操作函数
+bool safe_delete_line_from_index_file(const char* filepath, const char* filenameToDelete) {
+    if(!xSDCardMutex) {
+        Serial.println("互斥锁为空，无法操作！");
+        return false;
+    }
+  // 请求获取互斥锁，等待最大时间为portMAX_DELAY（一直等）
+  if (xSemaphoreTake(xSDCardMutex, portMAX_DELAY) == pdTRUE) {
+    
+    // 成功获取到锁，执行受保护的文件操作
+    bool result = delete_line_from_index_file(filepath, filenameToDelete); // 调用你原来的函数
+    
+    // 操作完成后，必须释放锁！
+    xSemaphoreGive(xSDCardMutex);
+    
+    return result; // 返回操作结果
+  }
+  // 如果获取锁失败，返回false
+  return false;
+}
+
+
+bool safe_append_to_index_file(const char* filepath, const char* filenameToAppend) {
+    File readFile = tf_vfs->open(filepath, FILE_READ);
+    if (readFile)
+    {
+        String fileContent;
+        while (readFile.available())fileContent = readFile.readString();
+        readFile.close();
+        
+        // 检查内容是否已存在
+        if (fileContent.indexOf(filenameToAppend) != -1)
+        {
+            Serial.println("Content already exists in file, skipping write.");
+            return true; // 内容已存在，返回成功但不写入
+        }
+    }
+readFile.close();
+  return false;
+}
+
 
 // ==================== 文件链表释放函数 ====================
  void release_file_info(File_Info *head)
@@ -91,23 +364,6 @@ void join_path(char *dst_path, const char *pre_path, const char *rear_path)
     *dst_path = 0;
 }
 
-/*
- * get file basename
- */
-static const char *get_file_basename(const char *path)
-{
-    // 获取最后一个'/'所在的下标
-    const char *ret = path;
-    for (const char *cur = path; *cur != 0; ++cur)
-    {
-        if (*cur == '/')
-        {
-            ret = cur + 1;
-        }
-    }
-    return ret;
-}
-
 void SdCard::init()
 {
     SPIClass *sd_spi = new SPIClass(HSPI);          // another SPI
@@ -118,6 +374,11 @@ void SdCard::init()
         return;
     }
     tf_vfs = &SD;
+    xSDCardMutex = xSemaphoreCreateMutex(); // 创建互斥锁
+    if (xSDCardMutex == NULL) {
+        Serial.println("互斥锁创建失败！");
+        // while(1); // 死循环，系统无法启动
+    }
     uint8_t cardType = SD.cardType();
 
     // 目前SD_MMC驱动与硬件引脚存在冲突
@@ -203,8 +464,10 @@ void SdCard::listDir(const char *dirname, uint8_t levels)
             Serial.print("  SIZE: ");
             Serial.println(file.size());
         }
+        file.close();
         file = root.openNextFile();
     }
+    root.close();
     Serial.println(photo_file_num);
 }
 
@@ -244,8 +507,8 @@ File_Info *SdCard::listDir(const char *dirname)
     File file = root.openNextFile();
     while (file)
     {
-        const char *fn = get_file_basename(file.name());
-        int filename_len = strlen(fn);
+        const char *file_base_name = get_file_basename(file.name());
+        int filename_len = strlen(file_base_name);
         if (filename_len > FILENAME_MAX_LEN - 10)
         {
             Serial.println("Filename is too long.");
@@ -261,7 +524,7 @@ File_Info *SdCard::listDir(const char *dirname)
         new_node->next_node = NULL;
         
         // 使用strdup分配并复制文件名
-        new_node->file_name = strdup(fn);
+        new_node->file_name = strdup(file_base_name);
         if (!new_node->file_name) {
             free(new_node);
             break;
@@ -429,27 +692,30 @@ File SdCard::open(const String &path, const char *mode)
     return tf_vfs->open(path, mode);
 }
 
-void SdCard::appendFile(const char *path, const char *message)
+bool SdCard::appendFile(const char *path, const char *contentToWrite)
 {
-    TF_VFS_IS_NULL()
+    TF_VFS_IS_NULL(false);
+    bool success = false;
 
-    Serial.printf("Appending to file: %s\n", path);
-
+    Serial.printf("Appending '%s' to file: %s\n", contentToWrite, path);
     File file = tf_vfs->open(path, FILE_APPEND);
     if (!file)
     {
         Serial.println("Failed to open file for appending");
-        return;
+        return false;
     }
-    if (file.print(message))
+    if (file.print(contentToWrite))
     {
-        Serial.println("Message appended");
+
+        Serial.printf("Message '%s' appended\n", contentToWrite);
+        success = true;
     }
     else
     {
         Serial.println("Append failed");
     }
     file.close();
+    return success;
 }
 
 void SdCard::renameFile(const char *path1, const char *path2)

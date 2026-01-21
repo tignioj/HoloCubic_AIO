@@ -27,6 +27,11 @@ struct File_Info
     File_Info *next_node;  // 下一个节点
 };
 
+File_Info *load_files_from_index(const char* index_path, const char* index_folder);
+bool create_files_index(const char* path, const char* index_path);
+bool safe_append_to_index_file(const char* filepath, const char* filenameToAppend);
+bool safe_delete_line_from_index_file(const char* filepath, const char* filenameToDelete);
+
 void release_file_info(File_Info *info);
 
 void join_path(char *dst_path, const char *pre_path, const char *rear_path);
@@ -57,7 +62,7 @@ public:
 
     File open(const String &path, const char *mode = FILE_READ);
 
-    void appendFile(const char *path, const char *message);
+    bool appendFile(const char *path, const char *message);
 
     void renameFile(const char *path1, const char *path2);
 

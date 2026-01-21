@@ -7,7 +7,7 @@ lv_obj_t *image_scr = NULL;
 lv_obj_t *photo_image = NULL;
 
 static lv_style_t default_style;
-
+// 66752 66308 66308
 void photo_gui_init()
 {
     image_scr = lv_obj_create(NULL);
@@ -73,4 +73,3 @@ void photo_gui_del(void)
     // 手动清除样式，防止内存泄漏
     lv_style_reset(&default_style);
 }
-// 83072 82620
