@@ -57,57 +57,6 @@ static MediaAppRunData *run_data = NULL;
 
 // ==================== 辅助函数 ====================
 
-// ==================== 文件链表释放函数 ====================
-/*
-static void release_file_info1(File_Info *head)
-{
-
-    if (!head) return;
-
-    // 如果是空链表（只有头节点）
-    if (head->next_node == head) {
-        
-        if (head->file_name){ 
-            free(head->file_name);
-        }
-        free(head);
-        return;
-    }
-    
-    File_Info *start = head->next_node;
-    File_Info *current = start;
-    
-    do {
-        File_Info *next = current->next_node;
-        
-        // 释放文件名内存
-        if (current->file_name) {
-            free(current->file_name);
-            current->file_name = NULL;
-        }
-        // 释放节点本身
-        if (current != start) {  // 注意：start节点在循环外单独释放
-            free(current);
-        }
-        current = next;
-    } while (current && current != start);
-    
-    if (start->file_name) {
-        free(start->file_name);
-        start->file_name = NULL;
-    }
-
-    free(start);
-
-    // 释放head节点/movie
-    if(head->file_name){
-        free(head->file_name);
-        head->file_name = NULL;
-    }
-    free(head);
-}
-*/
-
 // 安全的配置设置函数
 static void set_default_config(MP_Config *cfg)
 {
@@ -273,136 +222,6 @@ static bool file_exists(const char* path)
     }
     return false;
 }
-// 读取索引文件构建文件列表（保持与listDir相同的结构）
-
-static File_Info *load_from_index(const char* index_path)
-{
-    File index_file = tf.open(index_path);
-    if (!index_file) {
-        Serial.println("Index file not found, will scan directory");
-        return NULL;
-    }
-    
-    // 创建头节点（表示文件夹）
-    File_Info *head_file = (File_Info *)malloc(sizeof(File_Info));
-    if (!head_file) {
-        Serial.println("Memory allocation failed for head file");
-        index_file.close();
-        return NULL;
-    }
-    
-    head_file->file_type = FILE_TYPE_FOLDER;
-    head_file->file_name = strdup(MOVIE_PATH);
-    head_file->front_node = NULL;
-    head_file->next_node = NULL;
-    
-    File_Info *tail_file = head_file;
-    char line[MAX_FILENAME_LENGTH];
-    int file_count = 0;
-    bool allocated_failed = false;
-    while (index_file.available()) {
-        int bytesRead = index_file.readBytesUntil('\n', line, sizeof(line)-1);
-        if (bytesRead > 0) {
-            line[bytesRead] = '\0';
-            // 去除换行符
-            if (bytesRead > 0 && line[bytesRead-1] == '\r') {
-                line[bytesRead-1] = '\0';
-                bytesRead--;
-            }
-            
-            // 跳过空行
-            if (bytesRead == 0) continue;
-            
-            // 验证文件实际存在
-            // char full_path[MAX_FILENAME_LENGTH];
-            // snprintf(full_path, sizeof(full_path), "%s/%s", MOVIE_PATH, line);
-            // 不要验证了，播放的时候再验证，不然每一个都验证相当于全盘扫面
-            // TODO 播放的时候验证文件是否存在，不存在则从索引里面删除
-            // if (!file_exists(full_path)) {
-            //     Serial.printf("File in index not found: %s\n", full_path);
-            //     continue;
-            // }
-            
-            // 创建文件节点
-            File_Info *new_file = (File_Info *)malloc(sizeof(File_Info));
-            if (!new_file) {
-                Serial.println("Memory allocation failed for file info");
-                release_file_info(head_file); // 这个函数会把头节点也清理掉
-                allocated_failed = true;
-                // TODO 这里直接break掉了，之前分配的内存没有释放，有内存泄漏风险
-                break;
-            }
-            
-            new_file->file_name = strdup(line);
-            new_file->file_type = FILE_TYPE_FILE;
-            
-            // 添加到链表
-            tail_file->next_node = new_file;
-            new_file->front_node = tail_file;
-            new_file->next_node = NULL;
-            tail_file = new_file;
-            
-            file_count++;
-        }
-    }
-    
-    index_file.close();
-
-    if(allocated_failed) return NULL;
-
-    // 将链表设置为循环（与listDir保持一致）
-    if (head_file->next_node) {
-        // 将最后一个节点的next指向第一个文件节点
-        tail_file->next_node = head_file->next_node;
-        // 将第一个文件节点的front指向最后一个节点
-        head_file->next_node->front_node = tail_file;
-    } else {
-        // 如果没有文件，头节点自循环
-        head_file->next_node = head_file;
-        head_file->front_node = head_file;
-    }
-
-    Serial.printf("Loaded %d files from index\n", file_count);
-    return head_file;
-}
-
-// 扫描目录并创建索引文件
-static File_Info *scan_and_create_index(const char* path, const char* index_path)
-{
-    Serial.println("Scanning directory to create index...");
-    File_Info *file_list = tf.listDir(path);
-    if (!file_list) {
-        Serial.println("No files found in directory");
-        return NULL;
-    }
-    
-    // 创建索引文件
-    File index_file = tf.open(index_path, FILE_WRITE);
-    if (!index_file) {
-        Serial.println("Failed to create index file");
-        return file_list; // 返回扫描结果，但不保存索引
-    }
-    
-    // 遍历文件列表，写入索引文件（跳过头节点）
-    int file_count = 0;
-    if (file_list && file_list->next_node) {
-        File_Info *current = file_list->next_node;
-        File_Info *first_file = current;
-        
-        do {
-            if (current->file_type == FILE_TYPE_FILE) {
-                index_file.println(current->file_name);
-                file_count++;
-            }
-            current = current->next_node;
-        } while (current != first_file);
-    }
-    
-    index_file.close();
-    Serial.printf("Created index with %d files\n", file_count);
-    return file_list;
-}
-
 
 
 // ==================== 播放器核心 ====================
@@ -649,10 +468,15 @@ static int media_player_init(AppController *sys)
     // 扫描视频文件 - 使用索引文件加速
     const char* index_path = "/movie/movie.txt";
     // 先尝试从索引文件加载
-    run_data->movie_file = load_from_index(index_path);
+    run_data->movie_file = load_files_from_index(index_path, MOVIE_PATH);
     // 如果索引加载失败，扫描目录并创建索引
     if (!run_data->movie_file) {
-        run_data->movie_file = scan_and_create_index(MOVIE_PATH, index_path);
+        if(create_files_index(MOVIE_PATH, index_path)) {
+            Serial.println("Created movie index file");
+            run_data->movie_file = load_files_from_index(index_path, MOVIE_PATH);
+        } else {
+            Serial.println("Failed to create movie index file");
+        }
     }
     
     if (run_data->movie_file) {

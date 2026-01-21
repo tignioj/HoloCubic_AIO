@@ -3,6 +3,7 @@
 #include "sys/app_controller.h"
 #include "common.h"
 
+// TODO 更新索引的时机：1.开机 2.使用了filemanager
 // Include the jpeg decoder library
 #include <TJpg_Decoder.h>
 
@@ -120,7 +121,20 @@ static int picture_init(AppController *sys)
     run_data->tftSwapStatus = tft->getSwapBytes();
     tft->setSwapBytes(true); // We need to swap the colour bytes (endianess)
 
-    run_data->image_file = tf.listDir(IMAGE_PATH);
+    // 先尝试从索引文件加载
+    run_data->image_file = load_files_from_index(IMAGE_INDEX_PATH, IMAGE_PATH);
+    // 如果索引加载失败，扫描目录并创建索引
+    if (!run_data->image_file) {
+        if(create_files_index(IMAGE_PATH, IMAGE_INDEX_PATH)) {
+            Serial.println("Created image index file");
+        } else {
+            Serial.println("Failed to create image index file");
+        }
+        run_data->image_file = load_files_from_index(IMAGE_INDEX_PATH, IMAGE_PATH);
+    }
+    
+
+
     if (NULL != run_data->image_file)
     {
         run_data->pfile = get_next_file(run_data->image_file->next_node, 1);
