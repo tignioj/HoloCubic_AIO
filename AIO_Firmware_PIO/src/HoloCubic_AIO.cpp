@@ -242,8 +242,9 @@ void setup()
 #if APP_EXAMPLE_USE
     app_controller->app_install(&example_app);
 #endif
-#if APP_MYEXAMPLE_USE
-    app_controller->app_install(&myexample_app);
+
+#if APP_PICTURE_MANAGER_USE
+    app_controller->app_install(&picture_manager_app);
 #endif
 
 #if APP_WEATHER_USE
