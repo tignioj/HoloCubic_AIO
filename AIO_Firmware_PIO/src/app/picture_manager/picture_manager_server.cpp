@@ -127,26 +127,31 @@ void deleteDirectoryContents(const char * path) {
     // 2. 遍历目录中的所有项
     File file = root.openNextFile();
     while(file){
-        String filePath = String(path) + "/" + String(file.name()); // 构建完整路径
+        // String filePath = String(path) + "/" + String(file.name()); // 构建完整路径
+        // Serial.print("path:");
+        // Serial.println(path);
+        // Serial.print("filename:");
+        Serial.println(file.name());
 
         // 3. 判断是文件还是子目录
         if(file.isDirectory()){
             // 如果是子目录，递归调用自身先清空子目录
-            deleteDirectoryContents(filePath.c_str());
+            deleteDirectoryContents(file.name());
             // 子目录清空后，删除这个空目录
-            if(!SD.rmdir(filePath.c_str())){
-                Serial.printf("删除空目录失败: %s\n", filePath.c_str());
+            if(!SD.rmdir(file.name())){
+                Serial.printf("删除空目录失败: %s\n", file.name());
             } else {
-                Serial.printf("已删除空目录: %s\n", filePath.c_str());
+                Serial.printf("已删除空目录: %s\n", file.name());
             }
         } else {
             // 如果是文件，直接删除
-            if(!SD.remove(filePath.c_str())){
-                Serial.printf("删除文件失败: %s\n", filePath.c_str());
+            if(!SD.remove(file.name())){
+                Serial.printf("删除文件失败: %s\n", file.name());
             } else {
-                Serial.printf("已删除文件: %s\n", filePath.c_str());
+                Serial.printf("已删除文件: %s\n", file.name());
             }
         }
+        file.close();
         file = root.openNextFile(); // 继续处理下一项
     }
     // 清空索引
