@@ -38,7 +38,8 @@ lv_obj_clean(picture_manager_gui);
 只有lv_obj_del才需要将指针设为NULL，以防止悬挂指针问题。
  */
 
-
+// clean 53792 53780 53780 53760 53760 53756 53748 53740 53724
+// del 53724 53572 53612 53604 53628 53584 53740 53768
 void picture_manager_gui_init(void)
 { 
 
@@ -48,18 +49,11 @@ void picture_manager_gui_init(void)
 
 
     // 静态对象，如果已经被初始化了，则清空，重新初始化一次
-    if(picture_manager_gui != NULL) {
-        // 删除旧的对象
-        lv_obj_del(picture_manager_gui); // del之后必须设置null，而clean之后不能设置null
-        picture_manager_gui = NULL;
-        ip_label = NULL;
-        ap_label = NULL;
-        message_label = NULL;
-        ssid_label = NULL;
-        hostname_label = NULL;
-    }
-
-    picture_manager_gui = lv_obj_create(NULL); // 创建一个屏幕
+    // if(picture_manager_gui != NULL) picture_manager_gui_del();
+    // picture_manager_gui = lv_obj_create(NULL); // 创建一个屏幕
+    
+    if(picture_manager_gui != NULL) picture_manager_gui_clean();
+    else picture_manager_gui = lv_obj_create(NULL); // 创建一个屏幕
 
     // 初始化样式
     lv_style_init(&default_style); // 初始化基本样式 
@@ -96,13 +90,6 @@ void picture_manager_gui_init(void)
     lv_scr_load(picture_manager_gui); // 加载屏幕
 }
 
-void display_picture_manager_init() {
-    // lv_obj_t *act_obj = lv_scr_act(); // 获取当前活动页
-    // if (act_obj == picture_manager_gui)
-    //     return;
-}
-
-
 
 void display_picture_manager_ssid_label(const char *ssid_label_text)
 {
@@ -127,15 +114,25 @@ void display_picture_manager_ip_label(const char *ip_label_text)
 {
     if(NULL != ip_label_text) lv_label_set_text_fmt(ip_label, "%s", ip_label_text);
 }
-
-
+void picture_manager_gui_clean(){
+    if (NULL != picture_manager_gui)
+    {
+        lv_obj_clean(picture_manager_gui); // 清空此前页面
+        ip_label = NULL;
+        ap_label = NULL;
+        message_label = NULL;
+        ssid_label = NULL;
+        hostname_label = NULL;
+    }
+}
+// 注意：在app_exit()中调用del会导致lv_obj_t *act_obj = lv_scr_act() 为空值
 void picture_manager_gui_del(void)
 {
     if (NULL != picture_manager_gui)
     {
         // 删除整个对象及其子对象， del之后必须设置null，防止指针悬挂；
         // 而clean之后不能设置null，因为clean只是清空子对象，父对象还在。如果设置null会导致内存泄漏。
-        lv_obj_del(picture_manager_gui); 
+        lv_obj_del(picture_manager_gui);  // 不知道为什么执行del，在app->exit()会报错，所以这个函数基本作废
         picture_manager_gui = NULL;
         ip_label = NULL;
         ap_label = NULL;
@@ -145,6 +142,7 @@ void picture_manager_gui_del(void)
     }
     
     // 手动清除样式，防止内存泄漏
+    // 不要执行这段代码，退出app的时候会白屏一下
     lv_style_reset(&default_style);
     lv_style_reset(&label_style);
 }

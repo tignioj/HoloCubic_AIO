@@ -102,7 +102,12 @@ static void picture_manager_background_task(AppController *sys,
 
 static int picture_manager_exit_callback(void *param)
 {
+
     stop_picture_manager_server();
+    picture_manager_gui_clean();
+    
+    // 这里不能调用lv_obj_del函数，否则会再sys->exit()代码中会报错！原因未知！
+
     // 释放资源
     if (NULL != run_data)
     {

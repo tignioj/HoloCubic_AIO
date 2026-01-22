@@ -278,9 +278,13 @@ void start_picture_manager_server() {
     // 注意：ESP32自带的WebServer不支持像AsyncWebServer那样的serveStatic方法
     // 我们需要单独处理静态文件，或者使用SPIFFS/SD卡的文件服务
     picture_manager_server->serveStatic("/", SD, "/www/index.html");
+    picture_manager_server->serveStatic("/assets/index.js", SD, "/www/assets/index.js");
+    picture_manager_server->serveStatic("/assets/index.js.gz", SD, "/www/assets/index.js.gz");
+    picture_manager_server->serveStatic("/assets/index.css", SD, "/www/assets/index.css");
+    picture_manager_server->serveStatic("/assets/index.css.gz", SD, "/www/assets/index.css.gz");
     picture_manager_server->serveStatic("/favicon.ico", SD, "/www/favicon.ico");
-    picture_manager_server->serveStatic("/assets", SD, "/www/assets");
-    picture_manager_server->serveStatic("/image", SD, "/image");
+    
+    // picture_manager_server->serveStatic("/image", SD, "/image");
     
     // 处理OPTIONS请求（CORS预检）
     picture_manager_server->on("/api/image/upload", HTTP_OPTIONS, handleOptions);
