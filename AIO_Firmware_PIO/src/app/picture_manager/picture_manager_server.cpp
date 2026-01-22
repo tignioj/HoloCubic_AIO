@@ -277,14 +277,19 @@ void start_picture_manager_server() {
     // 配置路由
     // 注意：ESP32自带的WebServer不支持像AsyncWebServer那样的serveStatic方法
     // 我们需要单独处理静态文件，或者使用SPIFFS/SD卡的文件服务
-    picture_manager_server->serveStatic("/", SD, "/www/index.html");
-    picture_manager_server->serveStatic("/assets/index.js", SD, "/www/assets/index.js");
-    picture_manager_server->serveStatic("/assets/index.js.gz", SD, "/www/assets/index.js.gz");
-    picture_manager_server->serveStatic("/assets/index.css", SD, "/www/assets/index.css");
-    picture_manager_server->serveStatic("/assets/index.css.gz", SD, "/www/assets/index.css.gz");
-    picture_manager_server->serveStatic("/favicon.ico", SD, "/www/favicon.ico");
     
-    // picture_manager_server->serveStatic("/image", SD, "/image");
+
+    // picture_manager_server->serveStatic("/assets", SD, "/www/assets/");
+    // picture_manager_server->serveStatic("/", SD, "/www/index.html");
+    // picture_manager_server->serveStatic("/assets/index.js", SD, "/www/assets/index.js");
+    // picture_manager_server->serveStatic("/assets/index.js.gz", SD, "/www/assets/index.js.gz");
+    // picture_manager_server->serveStatic("/assets/index.css", SD, "/www/assets/index.css");
+    // picture_manager_server->serveStatic("/assets/index.css.gz", SD, "/www/assets/index.css.gz");
+
+    picture_manager_server->serveStatic("/image", SD, "/image/");
+    picture_manager_server->serveStatic("/assets", SD, "/www/assets/");
+    picture_manager_server->serveStatic("/favicon.ico", SD, "/www/favicon.ico");
+    picture_manager_server->serveStatic("/", SD, "/www/index.html");
     
     // 处理OPTIONS请求（CORS预检）
     picture_manager_server->on("/api/image/upload", HTTP_OPTIONS, handleOptions);
@@ -294,6 +299,7 @@ void start_picture_manager_server() {
     picture_manager_server->on("/api/image/list", HTTP_OPTIONS, handleOptions);
     picture_manager_server->on("/api/image/update_index", HTTP_OPTIONS, handleOptions);
     
+    // picture_manager_server->serveStatic("/", SD, "/www/");
     // 上传接口
     picture_manager_server->on("/api/image/upload", HTTP_POST, handleUploadComplete, handlePictureFileUpload);
     
@@ -314,7 +320,11 @@ void start_picture_manager_server() {
     
     // 处理404错误
     picture_manager_server->onNotFound(handleNotFound);
-    
+
+    // 静态文件服务,注意路由顺序，如果把先注册根路径/，那么后面注册的所有/api/路径都会被视为静态文件处理，所以要放在最后
+    // picture_manager_server->serveStatic("/image", SD, "/image/");
+    // picture_manager_server->serveStatic("/assets", SD, "/www/assets/");
+    // picture_manager_server->serveStatic("/", SD, "/www/index.html");
     // 开始服务器
     picture_manager_server->begin();
     Serial.println("HTTP server started on port 81");
