@@ -18,7 +18,7 @@ extern "C"
     void display_picture_manager_ap_label(const char *ap_label_text);
     void display_picture_manager_ip_label(const char *ip_label_text);
     void picture_manager_gui_del(void);
-
+    void picture_manager_gui_clean(void);
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
