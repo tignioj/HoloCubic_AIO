@@ -1,19 +1,19 @@
 #include "screen_share_udp_gui.h"
 #include "lvgl.h"
 
-lv_obj_t *share_main_scr = NULL;
+static lv_obj_t *share_main_scr = NULL;
 
-lv_obj_t *title_label;
-lv_obj_t *local_ip_label;
-lv_obj_t *local_port_label;
-lv_obj_t *info_label;
+static lv_obj_t *title_label;
+static lv_obj_t *local_ip_label;
+static lv_obj_t *local_port_label;
+static lv_obj_t *info_label;
 
 static lv_style_t default_style;
 static lv_style_t label_style;
 
 LV_FONT_DECLARE(lv_font_montserrat_24);
 
-void screen_share_gui_init(void)
+void screen_share_udp_gui_init(void)
 {
     lv_obj_t *act_obj = lv_scr_act();
     lv_obj_clean(act_obj);
@@ -92,12 +92,12 @@ void screen_share_gui_init(void)
     lv_scr_load(share_main_scr);
 }
 
-void display_share_init(void)
+void display_share_udp_init(void)
 {
     /* 保持空实现 */
 }
 
-void display_screen_share(const char *title,
+void display_screen_share_udp(const char *title,
                           const char *ip,
                           const char *port,
                           const char *info,
@@ -110,7 +110,7 @@ void display_screen_share(const char *title,
     lv_label_set_text_fmt(info_label, "Status: %s", info);
 }
 
-void screen_share_gui_del(void)
+void screen_share_udp_gui_del(void)
 {
     if (share_main_scr != NULL)
     {
