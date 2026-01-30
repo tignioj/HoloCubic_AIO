@@ -384,7 +384,7 @@ static int screen_share_init(AppController *sys)
                             150, 250, 1, 30};
     set_rgb_and_run(&rgb_setting);
 
-    screen_share_gui_init();
+    screen_share_udp_gui_init();
     
     run_data = (ScreenShareAppRunData *)calloc(1, sizeof(ScreenShareAppRunData));
     run_data->udp_start = 0;
@@ -417,11 +417,11 @@ void printDebugInfo() {
     static uint32_t lastPrint = 0;
     uint32_t now = millis();
     
-    if (now - lastPrint > 1000) {
+    if (now - lastPrint > 5000) {
         lastPrint = now;
         
         Serial.printf("内存: %u, ", ESP.getFreeHeap());
-        Serial.printf("UDP包/秒: %u, ", udpPackets);
+        Serial.printf("UDP包/5秒: %u, ", udpPackets);
         Serial.printf("丢包数: %u, ", dropCount);
         Serial.printf("显示帧数: %u, ", frameCount);
         
@@ -451,7 +451,7 @@ static void screen_share_process(AppController *sys, const ImuAction *action)
 
     if (0 == run_data->udp_start && 0 == run_data->req_sent)
     {
-        display_screen_share(
+        display_screen_share_udp(
             "Screen Share UDP",
             WiFi.localIP().toString().c_str(),
             "8888",
@@ -534,7 +534,7 @@ static int screen_exit_callback(void *param)
     }
 
     stop_share_config();
-    screen_share_gui_del();
+    screen_share_udp_gui_del();
 
     tft->setSwapBytes(run_data->tftSwapStatus);
 
@@ -572,7 +572,7 @@ static void screen_message_handle(const char *from, const char *to,
     case APP_MESSAGE_WIFI_CONN:
     {
         Serial.print(F("WiFi connected\n"));
-        display_screen_share(
+        display_screen_share_udp(
             "Screen Share UDP",
             WiFi.localIP().toString().c_str(),
             "8888",

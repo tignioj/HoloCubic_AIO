@@ -9,12 +9,12 @@ extern "C"
 #include "lvgl.h"
     extern const lv_img_dsc_t app_screen_share_udp;
 
-    void screen_share_gui_init(void);
-    void display_share_init(void);
-    void display_screen_share(const char *title, const char *ip,
+    void screen_share_udp_gui_init(void);
+    void display_share_udp_init(void);
+    void display_screen_share_udp(const char *title, const char *ip,
                               const char *port, const char *info,
                               lv_scr_load_anim_t anim_type);
-    void screen_share_gui_del(void);
+    void screen_share_udp_gui_del(void);
 
 #ifdef __cplusplus
 } /* extern "C" */
