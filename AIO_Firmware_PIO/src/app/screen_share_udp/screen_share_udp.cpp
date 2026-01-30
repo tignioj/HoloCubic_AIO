@@ -69,10 +69,33 @@ WiFiUDP udp;
 // ================= Image =================
 #define IMG_W 240
 
-#define RGB_LINE_BATCH 12  // 需要足够大，因为放大后行数可能增加
+#define RGB_LINE_BATCH 8  // 需要足够大，因为放大后行数可能增加
+// 调整这个参数，客户端也要响应的调整。参考值：
+// 若RGB_LINE_BATCH 为8，则建议客户端对应参数：
+// # 高清全彩
+// config1 = {'resolution': ESP32UDPHeader.RES_240, 'color_mode': ESP32UDPHeader.COLOR_RGB565, 'lines_per_packet': 3,'udp_interval': 0.0005}
+// # 高清低彩
+// config2 = {'resolution': ESP32UDPHeader.RES_240, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 6,'udp_interval': 0.0005}
+// # 中清高彩
+// config3 = {'resolution': ESP32UDPHeader.RES_180, 'color_mode': ESP32UDPHeader.COLOR_RGB565, 'lines_per_packet': 4,'udp_interval': 0.0005}
+// # config4 = {'resolution': ESP32UDPHeader.RES_180, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 4,'udp_interval': 0.0005}
+// # 中清低彩
+// config4 = {'resolution': ESP32UDPHeader.RES_180, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 8,'udp_interval': 0.001}
+// # 低清高彩
+// config5 = {'resolution': ESP32UDPHeader.RES_120, 'color_mode': ESP32UDPHeader.COLOR_RGB565, 'lines_per_packet': 6,'udp_interval': 0.000945}
+// # 低清低彩
+// config6 = {'resolution': ESP32UDPHeader.RES_120, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 6,'udp_interval': 0.000945}
+
+// 若RGB_LINE_BATCH 为8，则建议客户端对应参数：区别在于，减少了发送行数和间隔。因为发送过来的行数会被放大，放大系数和分辨率系数相等。
+// 例如180->240，放大系数0.75:1，客户端发来8行，就会被放大到12，但是由于RGB_LINE_BATCH设置了8，超过了上限，所以客户端发送的行数必须缩短到6行
+// config4 = {'resolution': ESP32UDPHeader.RES_180, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 6,'udp_interval': 0.0075}
+// config5 = {'resolution': ESP32UDPHeader.RES_120, 'color_mode': ESP32UDPHeader.COLOR_RGB565, 'lines_per_packet': 4,'udp_interval': 0.00065}
+// config6 = {'resolution': ESP32UDPHeader.RES_120, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 4,'udp_interval': 0.00065}
+
+
 
 // ================= Frame Buffer =================
-#define FRAME_BUF_COUNT 6
+#define FRAME_BUF_COUNT 5
 
 enum BufState {
     BUF_FREE,
