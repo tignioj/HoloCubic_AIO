@@ -266,6 +266,9 @@ void setup()
 #if APP_SCREEN_SHARE_USE
     app_controller->app_install(&screen_share_app);
 #endif
+#if APP_SCREEN_SHARE_UDP_USE
+    app_controller->app_install(&screen_share_udp_app);
+#endif
 #if APP_FILE_MANAGER_USE
     app_controller->app_install(&file_manager_app);
 #endif
