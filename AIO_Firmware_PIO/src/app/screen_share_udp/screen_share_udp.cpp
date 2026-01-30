@@ -9,10 +9,7 @@
 
 #define SHARE_WIFI_ALIVE 20000UL
 
-#define HTTP_PORT 8081
-#define CONNECTION_TIMEOUT 5000  // 连接超时时间
-#define READ_TIMEOUT 3000        // 读取超时时间
-#define SCREEN_SHARE_CONFIG_PATH "/screen_share_udp.cfg"
+#define SCREEN_SHARE_CONFIG_PATH "/screen_share_udp.cfg"  
 
 // UDP接收任务句柄
 static TaskHandle_t udpTaskHandle = NULL;
@@ -373,8 +370,8 @@ static int screen_share_init(AppController *sys)
 
     if (0 == cfg_data.powerFlag)
     {
-        //setCpuFrequencyMhz(160);
-        setCpuFrequencyMhz(240);
+        setCpuFrequencyMhz(160);
+        // setCpuFrequencyMhz(240);
     }
     else
     {
@@ -394,14 +391,12 @@ static int screen_share_init(AppController *sys)
     run_data->req_sent = 0;
 
     initdata();
-
     
     run_data->pre_wifi_alive_millis = 0;
     run_data->last_data_time = 0;
     run_data->connection_start_time = 0;
 
     tft->initDMA();
-
 
     run_data->tftSwapStatus = tft->getSwapBytes();
     tft->setSwapBytes(true);
@@ -417,16 +412,12 @@ static void stop_share_config()
     
 }
 
-
-static void check_and_accept_connection()
-{
-}
 // ================= Debug Info =================
 void printDebugInfo() {
     static uint32_t lastPrint = 0;
     uint32_t now = millis();
     
-    if (now - lastPrint > 5000) {
+    if (now - lastPrint > 1000) {
         lastPrint = now;
         
         Serial.printf("内存: %u, ", ESP.getFreeHeap());
@@ -481,29 +472,29 @@ static void screen_share_process(AppController *sys, const ImuAction *action)
         drawFrame();
         printDebugInfo();
         // 更新显示状态
-        static unsigned long last_display_update = 0;
-        if (doDelayMillisTime(5000, &last_display_update, false))
-        {
-            if (run_data->client_connected)
-            {
-                // Serial.println("client connected.");
-                // display_screen_share(
-                //     "Screen Share",
-                //     WiFi.localIP().toString().c_str(),
-                //     "8081",
-                //     "Connected",
-                //     LV_SCR_LOAD_ANIM_NONE);
-            }
-            else
-            {
-                display_screen_share(
-                    "Screen Share UDP",
-                    WiFi.localIP().toString().c_str(),
-                    "8888",
-                    "Wait connect ....",
-                    LV_SCR_LOAD_ANIM_NONE);
-            }
-        }
+        // static unsigned long last_display_update = 0;
+        // if (doDelayMillisTime(5000, &last_display_update, false))
+        // {
+        //     if (run_data->client_connected)
+        //     {
+        //         // Serial.println("client connected.");
+        //         // display_screen_share(
+        //         //     "Screen Share",
+        //         //     WiFi.localIP().toString().c_str(),
+        //         //     "8081",
+        //         //     "Connected",
+        //         //     LV_SCR_LOAD_ANIM_NONE);
+        //     }
+        //     else
+        //     {
+        //         display_screen_share(
+        //             "Screen Share UDP",
+        //             WiFi.localIP().toString().c_str(),
+        //             "8888",
+        //             "Wait connect ....",
+        //             LV_SCR_LOAD_ANIM_NONE);
+        //     }
+        // }
     }
 }
 
@@ -606,7 +597,7 @@ static void screen_message_handle(const char *from, const char *to,
 
 
 
-        Serial.printf("Server started on port %d\n", HTTP_PORT);
+        Serial.printf("Server started on port %d\n", UDP_PORT);
     }
     break;
     case APP_MESSAGE_WIFI_ALIVE:
