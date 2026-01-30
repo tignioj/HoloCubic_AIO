@@ -79,9 +79,15 @@
 #endif
 
 // 屏幕分享/投屏APP
-#define APP_SCREEN_SHARE_USE 1
+#define APP_SCREEN_SHARE_USE 0
 #if APP_SCREEN_SHARE_USE
 #include "app/screen_share/screen_share.h"
+#endif
+
+// 屏幕分享/投屏APP over UDP
+#define APP_SCREEN_SHARE_UDP_USE 1
+#if APP_SCREEN_SHARE_UDP_USE
+#include "app/screen_share_udp/screen_share_udp.h"
 #endif
 
 // 网页配置服务APP

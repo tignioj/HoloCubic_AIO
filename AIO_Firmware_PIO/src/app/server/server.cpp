@@ -59,6 +59,9 @@ void start_web_config()
 #if APP_SCREEN_SHARE_USE
     server->on("/screen_setting", screen_setting);
 #endif
+#if APP_SCREEN_SHARE_UDP_USE
+    server->on("/screen_udp_setting", screen_udp_setting);
+#endif
 #if APP_HEARTBEAT_USE
     server->on("/heartbeat_setting", heartbeat_setting);
 #endif
@@ -98,6 +101,9 @@ void start_web_config()
 #endif
 #if APP_SCREEN_SHARE_USE
     server->on("/saveScreenConf", saveScreenConf);
+#endif
+#if APP_SCREEN_SHARE_UDP_USE
+    server->on("/saveScreenUDPConf", saveScreenUDPConf);
 #endif
 #if APP_HEARTBEAT_USE
     server->on("/saveHeartbeatConf", saveHeartbeatConf);
@@ -162,7 +168,7 @@ static void server_process(AppController *sys,
 
     if (RETURN == action->active)
     {
-        stop_web_config();
+
         sys->app_exit();
         return;
     }
@@ -216,8 +222,9 @@ static void server_background_task(AppController *sys,
 
 static int server_exit_callback(void *param)
 {
+    
     setting_gui_del();
-
+    stop_web_config();
     // 释放运行数据
     if (NULL != run_data)
     {

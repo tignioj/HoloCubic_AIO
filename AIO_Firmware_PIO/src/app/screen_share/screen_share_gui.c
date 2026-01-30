@@ -15,11 +15,12 @@ LV_FONT_DECLARE(lv_font_montserrat_24);
 
 void screen_share_gui_init(void)
 {
-    share_main_scr = NULL;
-    title_label = NULL;
-    local_ip_label = NULL;
-    local_port_label = NULL;
-    info_label = NULL;
+    lv_obj_t *act_obj = lv_scr_act(); // 获取当前活动页
+    lv_obj_clean(act_obj); // 清空此前页面
+
+    if(NULL!=share_main_scr) screen_share_gui_del();
+    else share_main_scr = lv_obj_create(NULL);
+
 
     lv_style_init(&default_style);
     lv_style_set_bg_color(&default_style, lv_color_hex(0x000000));
@@ -28,19 +29,9 @@ void screen_share_gui_init(void)
     lv_style_set_text_opa(&label_style, LV_OPA_COVER);
     lv_style_set_text_color(&label_style, lv_color_white());
     lv_style_set_text_font(&label_style, &lv_font_montserrat_24);
-}
-
-void display_share_init(void)
-{
-    lv_obj_t *act_obj = lv_scr_act(); // 获取当前活动页
-    // if (act_obj == share_main_scr)
-    //     return;
-
-    lv_obj_clean(act_obj); // 清空此前页面
-    screen_share_gui_del();
-
+ 
     // 本地的ip地址
-    share_main_scr = lv_obj_create(NULL);
+    // share_main_scr = lv_obj_create(NULL);
     lv_obj_add_style(share_main_scr, &default_style, LV_STATE_DEFAULT);
 
     title_label = lv_label_create(share_main_scr);
@@ -62,11 +53,24 @@ void display_share_init(void)
     lv_scr_load(share_main_scr);
 }
 
+void display_share_init(void)
+{
+    // lv_obj_t *act_obj = lv_scr_act(); // 获取当前活动页
+
+    // if (act_obj == share_main_scr)
+    //     return;
+
+    // lv_obj_clean(act_obj); // 清空此前页面
+    // screen_share_gui_del();
+
+  
+}
+
 void display_screen_share(const char *title, const char *ip,
                           const char *port, const char *info,
                           lv_scr_load_anim_t anim_type)
 {
-    display_share_init();
+    // display_share_init();
 
     lv_label_set_text(title_label, title);
 
@@ -82,7 +86,7 @@ void screen_share_gui_del(void)
     if (NULL != share_main_scr)
     {
         lv_obj_clean(share_main_scr); // 清空此前页面
-        share_main_scr = NULL;
+        // share_main_scr = NULL;
         title_label = NULL;
         local_ip_label = NULL;
         local_port_label = NULL;

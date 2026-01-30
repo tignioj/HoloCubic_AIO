@@ -129,6 +129,10 @@ String file_size(int bytes)
                        "<label class=\"input\"><span>功耗控制（0低发热 1性能优先）</span><input type=\"text\"name=\"powerFlag\"value=\"%s\"></label>" \
                        "</label><input class=\"btn\" type=\"submit\" name=\"submit\" value=\"保存\"></form>"
 
+#define SCREEN_UDP_SETTING "<form method=\"GET\" action=\"saveScreenUDPConf\">"                                                                                           \
+                       "<label class=\"input\"><span>功耗控制（0低发热 1性能优先）</span><input type=\"text\"name=\"powerFlag\"value=\"%s\"></label>" \
+                       "</label><input class=\"btn\" type=\"submit\" name=\"submit\" value=\"保存\"></form>"
+
 #define HEARTBEAT_SETTING "<form method=\"GET\" action=\"saveHeartbeatConf\">"                                                                            \
                           "<label class=\"input\"><span>Role(0:heart,1:beat)</span><input type=\"text\"name=\"role\"value=\"%s\"></label>"                \
                           "<label class=\"input\"><span>QQ num(填写QQ号)</span><input type=\"text\"name=\"qq_num\"value=\"%s\"></label>"                    \  
@@ -215,6 +219,9 @@ void init_page_header()
 #endif
 #if APP_SCREEN_SHARE_USE
     webpage_header += F("<li><a href='/screen_setting'>屏幕分享</a></li>");
+#endif
+#if APP_SCREEN_SHARE_UDP_USE
+    webpage_header += F("<li><a href='/screen_udp_setting'>屏幕分享UDP</a></li>");
 #endif
 #if APP_HEARTBEAT_USE
     webpage_header += F("<li><a href='/heartbeat_setting'>心跳</a></li>");
@@ -483,6 +490,19 @@ void screen_setting()
     app_controller->send_to(SERVER_APP_NAME, "Screen share", APP_MESSAGE_GET_PARAM,
                             (void *)"powerFlag", powerFlag);
     sprintf(buf, SCREEN_SETTING, powerFlag);
+    webpage = buf;
+    Send_HTML(webpage);
+}
+void screen_udp_setting()
+{
+    char buf[2048];
+    char powerFlag[32];
+    // 读取数据
+    app_controller->send_to(SERVER_APP_NAME, "Screen share UDP", APP_MESSAGE_READ_CFG,
+                            NULL, NULL);
+    app_controller->send_to(SERVER_APP_NAME, "Screen share UDP", APP_MESSAGE_GET_PARAM,
+                            (void *)"powerFlag", powerFlag);
+    sprintf(buf, SCREEN_UDP_SETTING, powerFlag);
     webpage = buf;
     Send_HTML(webpage);
 }
@@ -764,6 +784,17 @@ void saveScreenConf(void)
                             (void *)server->arg("powerFlag").c_str());
     // 持久化数据
     app_controller->send_to(SERVER_APP_NAME, "Screen share", APP_MESSAGE_WRITE_CFG,
+                            NULL, NULL);
+}
+void saveScreenUDPConf(void)
+{
+    Send_HTML(F("<h1>设置成功! 退出APP或者继续其他设置.</h1>"));
+    app_controller->send_to(SERVER_APP_NAME, "Screen share UDP",
+                            APP_MESSAGE_SET_PARAM,
+                            (void *)"powerFlag",
+                            (void *)server->arg("powerFlag").c_str());
+    // 持久化数据
+    app_controller->send_to(SERVER_APP_NAME, "Screen share UDP", APP_MESSAGE_WRITE_CFG,
                             NULL, NULL);
 }
 
