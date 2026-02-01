@@ -131,13 +131,8 @@ void udpReceiverTask(void* param)
     udpTaskRunning = true;
     run_data->client_connected = true;
     // 增大缓冲区以容纳放大后的数据
-    // static uint8_t rxBuf[IMG_W * RGB_LINE_BATCH * 2];
-        uint8_t* rxBuf = (uint8_t*)malloc(IMG_W * RGB_LINE_BATCH * 2);
-    if (!rxBuf) {
-        Serial.println("rxBuf alloc failed");
-        vTaskDelete(NULL);
-    }
-
+    uint8_t rxBuf[1460];
+        // uint8_t* rxBuf = (uint8_t*)malloc(IMG_W * RGB_LINE_BATCH * 2);
     while (udpTaskRunning) {
         if (!frameBuf || !run_data) {
             vTaskDelay(1);
@@ -218,17 +213,28 @@ void udpReceiverTask(void* param)
         int dst_y0 = 0;
         int dst_lines = 0;
 
-        // =============== 240 → 240 ======================
+      // =============== 240 → 240 ======================
         if (src_w == 240) {
             dst_y0 = src_y0;
             dst_lines = src_lines;
             
             if (is_rgb565) {
                 memcpy(dst, rxBuf, 240 * src_lines * 2);
-            } else {
-                uint32_t px = 240 * src_lines;
-                for (uint32_t i = 0; i < px; i++) {
-                    dst[i] = rgb332_to_rgb565(rxBuf[i]);
+            } else { // 一种更快速的颜色转换方法
+                int n = src_w * src_lines;
+                uint16_t* d = dst;
+                uint8_t* src = rxBuf;
+                while (n >= 4) {
+                    d[0] = rgb332_to_565_lut[src[0]];
+                    d[1] = rgb332_to_565_lut[src[1]];
+                    d[2] = rgb332_to_565_lut[src[2]];
+                    d[3] = rgb332_to_565_lut[src[3]];
+                    src += 4;
+                    d   += 4;
+                    n   -= 4;
+                }   
+                while (n--) {
+                    *d++ = rgb332_to_565_lut[*src++];
                 }
             }
         }
@@ -237,17 +243,25 @@ void udpReceiverTask(void* param)
             // 计算目标行范围
             dst_y0 = (src_y0 * 240 + 120) / 180;  // 四舍五入
             dst_lines = (src_lines * 240 + 179) / 180; // 向上取整
-            
-
-            
             // 检查缓冲区是否足够
             if (dst_lines > RGB_LINE_BATCH) {
                 f->state = BUF_FREE;
                 udp.flush();
                 continue;
             }
-            
-            scale_180_to_240_table(rxBuf, dst, is_rgb565, src_lines);
+            if (is_rgb565) {
+                scale_180_to_240_rgb565(
+                     (uint16_t*) rxBuf,
+                    dst,
+                    src_lines
+                );
+            } else {
+                scale_180_to_240_rgb332(
+                    rxBuf,
+                    dst,
+                    src_lines
+                );
+            }
         }
         // =============== 120 → 240 ======================
         else if (src_w == 120) {
@@ -259,18 +273,28 @@ void udpReceiverTask(void* param)
                 dst_lines = 240 - dst_y0;
             }
 
-        // 检查缓冲区是否足够
-        // 检查缓冲区是否足够 - 使用动态计算
-        if (dst_lines > RGB_LINE_BATCH) {
-            // 如果超出，调整接收到的行数
-            int max_src_lines = RGB_LINE_BATCH / 2;
-            if (src_lines > max_src_lines) {
-                src_lines = max_src_lines;
-                dst_lines = max_src_lines * 2;
+            // 检查缓冲区是否足够
+            // 检查缓冲区是否足够 - 使用动态计算
+            if (dst_lines > RGB_LINE_BATCH) {
+                // 如果超出，调整接收到的行数
+                int max_src_lines = RGB_LINE_BATCH / 2;
+                if (src_lines > max_src_lines) {
+                    src_lines = max_src_lines;
+                    dst_lines = max_src_lines * 2;
+                }
             }
-        }
-        
-        scale_120_to_240(rxBuf, dst, is_rgb565, src_lines);
+
+            if (is_rgb565) {
+                scale_120_to_240_rgb565((uint16_t*)rxBuf,
+                dst,
+                src_lines);
+            } else {
+                scale_120_to_240_rgb332(
+                    (uint8_t*)rxBuf,
+                    dst,
+                    src_lines);
+            }
+     
         }
 
         // ------------------ 提交 ------------------
