@@ -6,14 +6,12 @@
 
 #define SCREEN_SHARE_APP_NAME "Screen share UDP"
 
-
 #define SHARE_WIFI_ALIVE 20000UL
+#define SCREEN_SHARE_CONFIG_PATH "/screen_share_udp.cfg"
 
-#define SCREEN_SHARE_CONFIG_PATH "/screen_share_udp.cfg"  
-
-// UDP接收任务句柄
-static TaskHandle_t udpTaskHandle = NULL;
-static volatile bool udpTaskRunning = false;
+// 绘制任务句柄
+static TaskHandle_t drawTaskHandle = NULL;
+static volatile bool drawTaskRunning = false;
 
 struct SS_Config
 {
@@ -53,9 +51,7 @@ struct ScreenShareAppRunData
     boolean udp_start;
     boolean req_sent;
     boolean client_connected;
-
     boolean tftSwapStatus;
-
     unsigned long pre_wifi_alive_millis;
     unsigned long last_data_time;
     unsigned long connection_start_time;
@@ -66,35 +62,9 @@ static ScreenShareAppRunData *run_data = NULL;
 
 WiFiUDP udp;
 #define UDP_PORT 8888
-// ================= Image =================
 #define IMG_W 240
+#define RGB_LINE_BATCH 8
 
-#define RGB_LINE_BATCH 8  // 需要足够大，因为放大后行数可能增加
-// 调整这个参数，客户端也要响应的调整。参考值：
-// 若RGB_LINE_BATCH 为8，则建议客户端对应参数：
-// # 高清全彩
-// config1 = {'resolution': ESP32UDPHeader.RES_240, 'color_mode': ESP32UDPHeader.COLOR_RGB565, 'lines_per_packet': 3,'udp_interval': 0.0005}
-// # 高清低彩
-// config2 = {'resolution': ESP32UDPHeader.RES_240, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 6,'udp_interval': 0.0005}
-// # 中清高彩
-// config3 = {'resolution': ESP32UDPHeader.RES_180, 'color_mode': ESP32UDPHeader.COLOR_RGB565, 'lines_per_packet': 4,'udp_interval': 0.0005}
-// # config4 = {'resolution': ESP32UDPHeader.RES_180, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 4,'udp_interval': 0.0005}
-// # 中清低彩
-// config4 = {'resolution': ESP32UDPHeader.RES_180, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 8,'udp_interval': 0.001}
-// # 低清高彩
-// config5 = {'resolution': ESP32UDPHeader.RES_120, 'color_mode': ESP32UDPHeader.COLOR_RGB565, 'lines_per_packet': 6,'udp_interval': 0.000945}
-// # 低清低彩
-// config6 = {'resolution': ESP32UDPHeader.RES_120, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 6,'udp_interval': 0.000945}
-
-// 若RGB_LINE_BATCH 为8，则建议客户端对应参数：区别在于，减少了发送行数和间隔。因为发送过来的行数会被放大，放大系数和分辨率系数相等。
-// 例如180->240，放大系数0.75:1，客户端发来8行，就会被放大到12，但是由于RGB_LINE_BATCH设置了8，超过了上限，所以客户端发送的行数必须缩短到6行
-// config4 = {'resolution': ESP32UDPHeader.RES_180, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 6,'udp_interval': 0.0075}
-// config5 = {'resolution': ESP32UDPHeader.RES_120, 'color_mode': ESP32UDPHeader.COLOR_RGB565, 'lines_per_packet': 4,'udp_interval': 0.00065}
-// config6 = {'resolution': ESP32UDPHeader.RES_120, 'color_mode': ESP32UDPHeader.COLOR_RGB332, 'lines_per_packet': 4,'udp_interval': 0.00065}
-
-
-
-// ================= Frame Buffer =================
 #define FRAME_BUF_COUNT 5
 
 enum BufState {
@@ -107,356 +77,245 @@ enum BufState {
 struct FrameData {
     uint16_t y_start;
     uint16_t line_count;
-    // uint16_t lines[IMG_W * RGB_LINE_BATCH];
-    uint16_t* lines;   // 指针
+    uint16_t* lines;
     volatile BufState state;
 };
 
-// FrameData frameBuf[FRAME_BUF_COUNT];
 static FrameData* frameBuf = nullptr;
 
-// ================= DMA =================
 uint16_t* dmaBuf[2];
 volatile uint8_t dmaSel = 0;
 
-// ================= Stats =================
 volatile uint32_t frameCount = 0;
 volatile uint32_t dropCount = 0;
 volatile uint32_t udpPackets = 0;
 
-
-// ================= UDP Receiver Task =================
-void udpReceiverTask(void* param)
+// ================= 绘制任务 =================
+void drawTask(void* param)
 {
-    udpTaskRunning = true;
-    run_data->client_connected = true;
-    // 增大缓冲区以容纳放大后的数据
-    uint8_t rxBuf[1460];
-        // uint8_t* rxBuf = (uint8_t*)malloc(IMG_W * RGB_LINE_BATCH * 2);
-    while (udpTaskRunning) {
+    drawTaskRunning = true;
+    while (drawTaskRunning) {
         if (!frameBuf || !run_data) {
             vTaskDelay(1);
             continue;
         }
+        
+        FrameData* newest = nullptr;
+        int newestIdx = -1;
 
-        int packetSize = udp.parsePacket();
-        if (!udpTaskRunning) break;
-        if (packetSize <= 0) {
-            vTaskDelay(1);
-            continue;
-        }
-        udpPackets++;
-
-        // ------------------ 读 Header ------------------
-        uint8_t header[5];
-        if (udp.read(header, 5) != 5) {
-            udp.flush();
-            continue;
-        }
-
-        uint16_t frame_id = (header[0] << 8) | header[1];
-        uint16_t src_y0 = (header[2] << 8) | header[3];
-        uint8_t flags = header[4];
-
-        uint8_t resolution = (flags >> 6) & 0x03; // 0=240,1=180,2=120
-        uint8_t color_mode = (flags >> 4) & 0x03; // 0=RGB565,1=RGB332
-        uint8_t src_lines = flags & 0x0F;
-
-        if (src_lines == 0 || src_lines > RGB_LINE_BATCH) {
-            udp.flush();
-            continue;
-        }
-
-        bool is_rgb565 = (color_mode == 0);
-
-        // ------------------ 源尺寸 ------------------
-        int src_w, src_h;
-        switch (resolution) {
-            case 0: src_w = src_h = 240; break;
-            case 1: src_w = src_h = 180; break;
-            case 2: src_w = src_h = 120; break;
-            default:
-                udp.flush();
-                continue;
-        }
-
-        // ------------------ 计算接收大小 ------------------
-        uint32_t bytes_per_px = is_rgb565 ? 2 : 1;
-        uint32_t expect = src_w * src_lines * bytes_per_px;
-
-        // ------------------ 找空 buffer ------------------
-        FrameData* f = nullptr;
+        // 找 READY 的缓冲区
         for (int i = 0; i < FRAME_BUF_COUNT; i++) {
-            if (frameBuf[i].state == BUF_FREE) {
-                f = &frameBuf[i];
-                f->state = BUF_FILLING;
+            if (frameBuf[i].state == BUF_READY) {
+                newest = &frameBuf[i];
+                newestIdx = i;
                 break;
             }
         }
 
-        if (!f) {
-            dropCount++;
-            udp.flush();
+        if (!newest) {
+            vTaskDelay(1);
             continue;
         }
 
-        if (udp.read(rxBuf, expect) != expect) {
-            f->state = BUF_FREE;
-            continue;
-        }
+        newest->state = BUF_DISPLAYING;
 
-        // =================================================
-        //            分辨率统一 → 240 RGB565
-        // =================================================
+        uint8_t nextDma = dmaSel ^ 1;
+
+        // 等待 DMA 完成
+        tft->dmaWait();
+
+        memcpy(
+            dmaBuf[nextDma],
+            newest->lines,
+            IMG_W * newest->line_count * 2
+        );
+
+        tft->startWrite();
+        tft->pushImageDMA(
+            0,
+            newest->y_start,
+            IMG_W,
+            newest->line_count,
+            dmaBuf[nextDma]
+        );
+        tft->endWrite();
+
+        dmaSel = nextDma;
+        newest->state = BUF_FREE;
+        frameCount++;
         
-        uint16_t* dst = f->lines;
-        int dst_y0 = 0;
-        int dst_lines = 0;
-
-      // =============== 240 → 240 ======================
-        if (src_w == 240) {
-            dst_y0 = src_y0;
-            dst_lines = src_lines;
-            
-            if (is_rgb565) {
-                memcpy(dst, rxBuf, 240 * src_lines * 2);
-            } else { // 一种更快速的颜色转换方法
-                int n = src_w * src_lines;
-                uint16_t* d = dst;
-                uint8_t* src = rxBuf;
-                while (n >= 4) {
-                    d[0] = rgb332_to_565_lut[src[0]];
-                    d[1] = rgb332_to_565_lut[src[1]];
-                    d[2] = rgb332_to_565_lut[src[2]];
-                    d[3] = rgb332_to_565_lut[src[3]];
-                    src += 4;
-                    d   += 4;
-                    n   -= 4;
-                }   
-                while (n--) {
-                    *d++ = rgb332_to_565_lut[*src++];
-                }
-            }
-        }
-        // =============== 180 → 240 ======================
-        else if (src_w == 180) {
-            // 计算目标行范围
-            dst_y0 = (src_y0 * 240 + 120) / 180;  // 四舍五入
-            dst_lines = (src_lines * 240 + 179) / 180; // 向上取整
-            // 检查缓冲区是否足够
-            if (dst_lines > RGB_LINE_BATCH) {
-                f->state = BUF_FREE;
-                udp.flush();
-                continue;
-            }
-            if (is_rgb565) {
-                scale_180_to_240_rgb565(
-                     (uint16_t*) rxBuf,
-                    dst,
-                    src_lines
-                );
-            } else {
-                scale_180_to_240_rgb332(
-                    rxBuf,
-                    dst,
-                    src_lines
-                );
-            }
-        }
-        // =============== 120 → 240 ======================
-        else if (src_w == 120) {
-            // 计算目标行范围
-            dst_y0 = src_y0 * 2;
-            dst_lines = src_lines * 2;
-            // 确保不超出240边界
-            if (dst_y0 + dst_lines > 240) {
-                dst_lines = 240 - dst_y0;
-            }
-
-            // 检查缓冲区是否足够
-            // 检查缓冲区是否足够 - 使用动态计算
-            if (dst_lines > RGB_LINE_BATCH) {
-                // 如果超出，调整接收到的行数
-                int max_src_lines = RGB_LINE_BATCH / 2;
-                if (src_lines > max_src_lines) {
-                    src_lines = max_src_lines;
-                    dst_lines = max_src_lines * 2;
-                }
-            }
-
-            if (is_rgb565) {
-                scale_120_to_240_rgb565((uint16_t*)rxBuf,
-                dst,
-                src_lines);
-            } else {
-                scale_120_to_240_rgb332(
-                    (uint8_t*)rxBuf,
-                    dst,
-                    src_lines);
-            }
-     
-        }
-
-        // ------------------ 提交 ------------------
-        f->y_start = dst_y0;
-        f->line_count = dst_lines;
-        f->state = BUF_READY;
+        // vTaskDelay(1); // 让出CPU给其他任务
     }
-
-    Serial.println("释放UDP线程任务的rxBuf以及停止udp服务");
-    free(rxBuf);
-    udp.stop();              // 关闭 socket
-    run_data->client_connected = false;
-    udpTaskRunning = false;
+    
+    drawTaskRunning = false;
     vTaskDelete(NULL);
 }
 
-// ================= Draw Frame =================
-void drawFrame() {
-    FrameData* newest = nullptr;
-    int newestIdx = -1;
+// ================= UDP接收处理（在loop中调用） =================
+void processUDP()
+{
+    if (!frameBuf || !run_data || !run_data->client_connected) {
+        return;
+    }
+    
+    int packetSize = udp.parsePacket();
+    if (packetSize <= 0) {
+        return;
+    }
+    udpPackets++;
 
-    // 找 READY 的缓冲区
+    // ------------------ 读 Header ------------------
+    uint8_t header[5];
+    if (udp.read(header, 5) != 5) {
+        udp.flush();
+        return;
+    }
+
+    // uint16_t frame_id = (header[0] << 8) | header[1];
+    uint16_t src_y0 = (header[2] << 8) | header[3];
+    uint8_t flags = header[4];
+
+    uint8_t resolution = (flags >> 6) & 0x03; // 0=240,1=180,2=120
+    uint8_t color_mode = (flags >> 4) & 0x03; // 0=RGB565,1=RGB332
+    uint8_t src_lines = flags & 0x0F;
+
+    if (src_lines == 0 || src_lines > RGB_LINE_BATCH) {
+        udp.flush();
+        return;
+    }
+
+    bool is_rgb565 = (color_mode == 0);
+
+    // ------------------ 源尺寸 ------------------
+    int src_w, src_h;
+    switch (resolution) {
+        case 0: src_w = src_h = 240; break;
+        case 1: src_w = src_h = 180; break;
+        case 2: src_w = src_h = 120; break;
+        default:
+            udp.flush();
+            return;
+    }
+
+    // ------------------ 计算接收大小 ------------------
+    uint32_t bytes_per_px = is_rgb565 ? 2 : 1;
+    uint32_t expect = src_w * src_lines * bytes_per_px;
+
+    // ------------------ 找空 buffer ------------------
+    FrameData* f = nullptr;
     for (int i = 0; i < FRAME_BUF_COUNT; i++) {
-        if (frameBuf[i].state == BUF_READY) {
-            newest = &frameBuf[i];
-            newestIdx = i;
+        if (frameBuf[i].state == BUF_FREE) {
+            f = &frameBuf[i];
+            f->state = BUF_FILLING;
             break;
         }
     }
 
-    if (!newest) return;
-
-    // 其余 READY 的直接丢弃（防堆积）
-    // for (int i = 0; i < FRAME_BUF_COUNT; i++) {
-    //     if (i != newestIdx && frameBuf[i].state == BUF_READY) {
-    //         frameBuf[i].state = BUF_FREE;
-    //     }
-    // }
-
-    newest->state = BUF_DISPLAYING;
-
-    uint8_t nextDma = dmaSel ^ 1;
-
-    // 等待 DMA 完成
-    tft->dmaWait();
-
-    memcpy(
-        dmaBuf[nextDma],
-        newest->lines,
-        IMG_W * newest->line_count * 2
-    );
-
-    tft->startWrite();
-    tft->pushImageDMA(
-        0,
-        newest->y_start,
-        IMG_W,
-        newest->line_count,
-        dmaBuf[nextDma]
-    );
-    tft->endWrite();
-
-    dmaSel = nextDma;
-    newest->state = BUF_FREE;
-    frameCount++;
-}
-
-static void initdata() {
-
-
-    frameBuf = (FrameData*)calloc(FRAME_BUF_COUNT, sizeof(FrameData));
-    if (!frameBuf) {
-        Serial.println("frameBuf alloc failed");
-        while (1);
+    if (!f) {
+        dropCount++;
+        udp.flush();
+        return;
     }
 
-    for (int i = 0; i < FRAME_BUF_COUNT; i++) {
-        frameBuf[i].lines = (uint16_t*)heap_caps_malloc(
-            IMG_W * RGB_LINE_BATCH * 2,
-            MALLOC_CAP_8BIT   // ❗不要 DMA，这不是 DMA buffer
-        );
-        if (!frameBuf[i].lines) {
-            Serial.println("frame line alloc failed");
-            while (1);
+    uint8_t rxBuf[1460]; // 临时缓冲区，用于接收数据
+    if (udp.read(rxBuf, expect) != expect) {
+        f->state = BUF_FREE;
+        return;
+    }
+
+    // =================================================
+    //            分辨率统一 → 240 RGB565
+    // =================================================
+    
+    uint16_t* dst = f->lines;
+    int dst_y0 = 0;
+    int dst_lines = 0;
+
+    // =============== 240 → 240 ======================
+    if (src_w == 240) {
+        dst_y0 = src_y0;
+        dst_lines = src_lines;
+        
+        if (is_rgb565) {
+            memcpy(dst, rxBuf, 240 * src_lines * 2);
+        } else { // 一种更快速的颜色转换方法
+            int n = src_w * src_lines;
+            uint16_t* d = dst;
+            uint8_t* src = rxBuf;
+            while (n >= 4) {
+                d[0] = rgb332_to_565_lut[src[0]];
+                d[1] = rgb332_to_565_lut[src[1]];
+                d[2] = rgb332_to_565_lut[src[2]];
+                d[3] = rgb332_to_565_lut[src[3]];
+                src += 4;
+                d   += 4;
+                n   -= 4;
+            }   
+            while (n--) {
+                *d++ = rgb332_to_565_lut[*src++];
+            }
         }
-        frameBuf[i].state = BUF_FREE;
     }
-    init_scale_maps();
+    // =============== 180 → 240 ======================
+    else if (src_w == 180) {
+        // 计算目标行范围
+        dst_y0 = (src_y0 * 240 + 120) / 180;  // 四舍五入
+        dst_lines = (src_lines * 240 + 179) / 180; // 向上取整
+        // 检查缓冲区是否足够
+        if (dst_lines > RGB_LINE_BATCH) {
+            f->state = BUF_FREE;
+            udp.flush();
+            return;
+        }
+        if (is_rgb565) {
+            scale_180_to_240_rgb565(
+                 (uint16_t*) rxBuf,
+                dst,
+                src_lines
+            );
+        } else {
+            scale_180_to_240_rgb332(
+                rxBuf,
+                dst,
+                src_lines
+            );
+        }
+    }
+    // =============== 120 → 240 ======================
+    else if (src_w == 120) {
+        // 计算目标行范围
+        dst_y0 = src_y0 * 2;
+        dst_lines = src_lines * 2;
+        // 确保不超出240边界
+        if (dst_y0 + dst_lines > 240) {
+            dst_lines = 240 - dst_y0;
+        }
 
-    // 分配 DMA 缓冲区
-    dmaBuf[0] = (uint16_t*)heap_caps_malloc(
-        IMG_W * RGB_LINE_BATCH * 2,
-        MALLOC_CAP_DMA
-    );
-    dmaBuf[1] = (uint16_t*)heap_caps_malloc(
-        IMG_W * RGB_LINE_BATCH * 2,
-        MALLOC_CAP_DMA
-    );
+        // 检查缓冲区是否足够
+        if (dst_lines > RGB_LINE_BATCH) {
+            int max_src_lines = RGB_LINE_BATCH / 2;
+            if (src_lines > max_src_lines) {
+                src_lines = max_src_lines;
+                dst_lines = max_src_lines * 2;
+            }
+        }
 
-    if (!dmaBuf[0] || !dmaBuf[1]) {
-        Serial.println("DMA alloc failed");
-        while (1);
+        if (is_rgb565) {
+            scale_120_to_240_rgb565((uint16_t*)rxBuf,
+            dst,
+            src_lines);
+        } else {
+            scale_120_to_240_rgb332(
+                (uint8_t*)rxBuf,
+                dst,
+                src_lines);
+        }
     }
 
-    // 创建 UDP 接收任务
-    // xTaskCreatePinnedToCore(
-    //     udpReceiverTask,
-    //     "udp_rx",
-    //     8192,
-    //     nullptr,
-    //     2,
-    //     nullptr,
-    //     0
-    // );
-}
-
-static int screen_share_init(AppController *sys)
-{
-    read_config(&cfg_data);
-
-    if (0 == cfg_data.powerFlag)
-    {
-        setCpuFrequencyMhz(160);
-        // setCpuFrequencyMhz(240);
-    }
-    else
-    {
-        setCpuFrequencyMhz(240);
-    }
-
-    RgbParam rgb_setting = {LED_MODE_HSV, 0, 128, 32,
-                            255, 255, 32,
-                            1, 1, 1,
-                            150, 250, 1, 30};
-    set_rgb_and_run(&rgb_setting);
-
-    screen_share_udp_gui_init();
-    
-    run_data = (ScreenShareAppRunData *)calloc(1, sizeof(ScreenShareAppRunData));
-    run_data->udp_start = 0;
-    run_data->req_sent = 0;
-
-    initdata();
-    
-    run_data->pre_wifi_alive_millis = 0;
-    run_data->last_data_time = 0;
-    run_data->connection_start_time = 0;
-
-    tft->initDMA();
-
-    run_data->tftSwapStatus = tft->getSwapBytes();
-    tft->setSwapBytes(true);
-
-    Serial.print(F("Screen Share initialized!\n"));
-    return 0;
-}
-
-static void stop_share_config()
-{
-    run_data->udp_start = 0;
-    run_data->req_sent = 0;
-    
+    // ------------------ 提交 ------------------
+    f->y_start = dst_y0;
+    f->line_count = dst_lines;
+    f->state = BUF_READY;
 }
 
 // ================= Debug Info =================
@@ -488,6 +347,88 @@ void printDebugInfo() {
     }
 }
 
+static void initdata() {
+    frameBuf = (FrameData*)calloc(FRAME_BUF_COUNT, sizeof(FrameData));
+    if (!frameBuf) {
+        Serial.println("frameBuf alloc failed");
+        while (1);
+    }
+
+    for (int i = 0; i < FRAME_BUF_COUNT; i++) {
+        frameBuf[i].lines = (uint16_t*)heap_caps_malloc(
+            IMG_W * RGB_LINE_BATCH * 2,
+            MALLOC_CAP_8BIT
+        );
+        if (!frameBuf[i].lines) {
+            Serial.println("frame line alloc failed");
+            while (1);
+        }
+        frameBuf[i].state = BUF_FREE;
+    }
+    init_scale_maps();
+
+    // 分配 DMA 缓冲区
+    dmaBuf[0] = (uint16_t*)heap_caps_malloc(
+        IMG_W * RGB_LINE_BATCH * 2,
+        MALLOC_CAP_DMA
+    );
+    dmaBuf[1] = (uint16_t*)heap_caps_malloc(
+        IMG_W * RGB_LINE_BATCH * 2,
+        MALLOC_CAP_DMA
+    );
+
+    if (!dmaBuf[0] || !dmaBuf[1]) {
+        Serial.println("DMA alloc failed");
+        while (1);
+    }
+}
+
+static int screen_share_init(AppController *sys)
+{
+    read_config(&cfg_data);
+
+    if (0 == cfg_data.powerFlag)
+    {
+        setCpuFrequencyMhz(160);
+    }
+    else
+    {
+        setCpuFrequencyMhz(240);
+    }
+
+    RgbParam rgb_setting = {LED_MODE_HSV, 0, 128, 32,
+                            255, 255, 32,
+                            1, 1, 1,
+                            150, 250, 1, 30};
+    set_rgb_and_run(&rgb_setting);
+
+    screen_share_udp_gui_init();
+    
+    run_data = (ScreenShareAppRunData *)calloc(1, sizeof(ScreenShareAppRunData));
+    run_data->udp_start = 0;
+    run_data->req_sent = 0;
+    run_data->client_connected = false;
+
+    initdata();
+    
+    run_data->pre_wifi_alive_millis = 0;
+    run_data->last_data_time = 0;
+    run_data->connection_start_time = 0;
+
+    tft->initDMA();
+    run_data->tftSwapStatus = tft->getSwapBytes();
+    tft->setSwapBytes(true);
+
+    Serial.print(F("Screen Share initialized!\n"));
+    return 0;
+}
+
+static void stop_share_config()
+{
+    run_data->udp_start = 0;
+    run_data->req_sent = 0;
+}
+
 static void screen_share_process(AppController *sys, const ImuAction *action)
 {
     if (RETURN == action->active)
@@ -516,32 +457,11 @@ static void screen_share_process(AppController *sys, const ImuAction *action)
             sys->send_to(SCREEN_SHARE_APP_NAME, CTRL_NAME,
                          APP_MESSAGE_WIFI_ALIVE, NULL, NULL);
         }
-        drawFrame();
+        
+        // UDP接收处理（在loop中）
+        processUDP();
+        
         printDebugInfo();
-        // 更新显示状态
-        // static unsigned long last_display_update = 0;
-        // if (doDelayMillisTime(5000, &last_display_update, false))
-        // {
-        //     if (run_data->client_connected)
-        //     {
-        //         // Serial.println("client connected.");
-        //         // display_screen_share(
-        //         //     "Screen Share",
-        //         //     WiFi.localIP().toString().c_str(),
-        //         //     "8081",
-        //         //     "Connected",
-        //         //     LV_SCR_LOAD_ANIM_NONE);
-        //     }
-        //     else
-        //     {
-        //         display_screen_share(
-        //             "Screen Share UDP",
-        //             WiFi.localIP().toString().c_str(),
-        //             "8888",
-        //             "Wait connect ....",
-        //             LV_SCR_LOAD_ANIM_NONE);
-        //     }
-        // }
     }
 }
 
@@ -552,28 +472,28 @@ static void screen_background_task(AppController *sys, const ImuAction *act_info
 
 static int screen_exit_callback(void *param)
 {
-
-    // 通知 UDP 任务退出
-    if (udpTaskHandle) {
-        udpTaskRunning = false;
-
-        // 等任务自己 vTaskDelete
-            for (int i = 0; i < 50; i++) {
-                if (eTaskGetState(udpTaskHandle) == eDeleted) {
-                    break;
-                }
-                vTaskDelay(pdMS_TO_TICKS(10));
+    // 通知绘制任务退出
+    if (drawTaskHandle) {
+        drawTaskRunning = false;
+        
+        // 等待任务自己 vTaskDelete
+        for (int i = 0; i < 50; i++) {
+            if (eTaskGetState(drawTaskHandle) == eDeleted) {
+                break;
             }
-
-        udpTaskHandle = NULL;
-
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        
+        drawTaskHandle = NULL;
     }
+    
     udp.stop();
+    run_data->client_connected = false;
 
     // 释放DMA缓存空间
     if (dmaBuf[0]) {
-    heap_caps_free(dmaBuf[0]);
-    dmaBuf[0] = nullptr;
+        heap_caps_free(dmaBuf[0]);
+        dmaBuf[0] = nullptr;
     }
     if (dmaBuf[1]) {
         heap_caps_free(dmaBuf[1]);
@@ -591,8 +511,6 @@ static int screen_exit_callback(void *param)
                             1, 1, 1,
                             150, 250, 1, 30};
     set_rgb_and_run(&rgb_setting);
-
-
 
     // 清空数据
     if (NULL != run_data)
@@ -629,20 +547,18 @@ static void screen_message_handle(const char *from, const char *to,
         
         // 确保服务器正确启动
         udp.begin(UDP_PORT);
+        run_data->client_connected = true;
 
-
-        // 创建 UDP 接收任务
+        // 创建绘制任务（在核心1）
         xTaskCreatePinnedToCore(
-            udpReceiverTask,
-            "udp_rx",
-            8192,
+            drawTask,
+            "draw_task",
+            4096,  // 可以适当减小栈大小
             nullptr,
-            2,
-            &udpTaskHandle,
-            0
+            2,  // 优先级
+            &drawTaskHandle,
+            1   // 核心1
         );
-
-
 
         Serial.printf("Server started on port %d\n", UDP_PORT);
     }
