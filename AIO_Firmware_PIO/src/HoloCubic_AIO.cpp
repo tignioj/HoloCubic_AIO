@@ -108,7 +108,7 @@ void checkAndUpdateBrightness() {
 // 任务1：专门处理亮度检查
 void TaskBrightnessCheck(void *parameter)
 {
-    const TickType_t xDelay = 5000 / portTICK_PERIOD_MS;
+    const TickType_t xDelay = 10000 / portTICK_PERIOD_MS;
     
     for (;;)
     {
@@ -120,7 +120,7 @@ void TaskBrightnessCheck(void *parameter)
 // 任务2：专门处理时间同步
 void TaskTimeSync(void *parameter)
 {
-    const TickType_t xDelay = 60000 / portTICK_PERIOD_MS;  // 每分钟检查一次是否需要同步
+    const TickType_t xDelay = 6000000 / portTICK_PERIOD_MS;  // 每100分钟检查一次是否需要同步
     
     unsigned long lastSuccessfulSync = 0;
     const unsigned long SYNC_INTERVAL = 12 * 3600 * 1000;
@@ -363,7 +363,7 @@ void setup()
     );
     
 }
-#define PERFORMANCE_DEBUG 1
+// #define PERFORMANCE_DEBUG 
 #ifdef PERFORMANCE_DEBUG
 // 性能监控
 static void performance_monitor(void)
