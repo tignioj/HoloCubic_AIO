@@ -21,7 +21,7 @@
 #include <SPIFFS.h>
 #include <esp32-hal.h>
 #include <esp32-hal-timer.h>
-
+#include "esp_task_wdt.h"
 bool isCheckAction = false;
 
 /*** Component objects **7*/
@@ -158,7 +158,10 @@ void TaskTimeSync(void *parameter)
 void setup()
 {
     Serial.begin(115200);
-
+    setCpuFrequencyMhz(240);
+    // 超时15秒，panic模式。必须设置这个，否则连接WiFi时，如果收到udp包会导致重启
+    // 这给 WiFi 任务一个更宽松的时间窗口，即使偶尔有瞬时高负载也不会立即重启。
+    esp_task_wdt_init(15, true);  
     Serial.println(F("\nAIO (All in one) version " AIO_VERSION "\n"));
     Serial.flush();
     // MAC ID可用作芯片唯一标识

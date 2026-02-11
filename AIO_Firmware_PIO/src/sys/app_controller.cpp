@@ -44,15 +44,16 @@ AppController::AppController(const char *name)
 
 void AppController::init(void)
 {
+    // 把这里低功耗注释掉了，加快开机速度。也避免开机时如果启动WiFi同时收到UDP数据包而重启的问题。
     // 设置CPU主频
-    if (1 == this->sys_cfg.power_mode)
-    {
-        setCpuFrequencyMhz(240);
-    }
-    else
-    {
-        setCpuFrequencyMhz(80);
-    }
+    // if (1 == this->sys_cfg.power_mode)
+    // {
+    //     setCpuFrequencyMhz(240);
+    // }
+    // else
+    // {
+    //     setCpuFrequencyMhz(160);
+    // }
     // uint32_t freq = getXtalFrequencyMhz(); // In MHz
     Serial.print(F("CpuFrequencyMhz: "));
     Serial.println(getCpuFrequencyMhz());
@@ -305,7 +306,6 @@ int AppController::req_event_deal(void)
             }
             continue;
         }
-
         // 事件回调
         if (NULL != (*event).from && NULL != (*event).from->message_handle)
         {
@@ -443,7 +443,7 @@ void AppController::app_exit()
     }
     else
     {
-        setCpuFrequencyMhz(80);
+        setCpuFrequencyMhz(160);
     }
     Serial.print(F("CpuFrequencyMhz: "));
     Serial.println(getCpuFrequencyMhz());
