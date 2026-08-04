@@ -130,6 +130,16 @@ static void file_maneger_message_handle(const char *from, const char *to,
         // wifi心跳维持
     }
     break;
+    case APP_MESSAGE_WIFI_CONN_FAILED:
+    {
+        if (NULL != run_data)
+        {
+            run_data->req_sent = 0;
+            display_file_manager("File Manager", "-", "21",
+                                 "WiFi failed, retrying", LV_SCR_LOAD_ANIM_NONE);
+        }
+    }
+    break;
     
     default:
         break;
@@ -139,4 +149,3 @@ static void file_maneger_message_handle(const char *from, const char *to,
 APP_OBJ file_manager_app = {FILE_MANAGER_APP_NAME, &app_file_manager, "",
                             file_maneger_init, file_maneger_process, file_maneger_background_task,
                             file_maneger_exit_callback, file_maneger_message_handle};
-                            

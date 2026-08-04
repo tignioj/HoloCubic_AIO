@@ -1007,6 +1007,14 @@ static void screenShareMessageHandle(
         break;
     case APP_MESSAGE_WIFI_ALIVE:
         break;
+    case APP_MESSAGE_WIFI_CONN_FAILED:
+        if (runData) {
+            runData->wifiRequested = false;
+            display_screen_share_udp(
+                "Screen Share UDP V2", "-", "8888",
+                "WiFi failed, retrying", LV_SCR_LOAD_ANIM_NONE);
+        }
+        break;
     case APP_MESSAGE_GET_PARAM: {
         const char* key = static_cast<const char*>(message);
         if (!strcmp(key, "powerFlag")) {

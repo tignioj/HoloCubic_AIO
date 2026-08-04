@@ -50,20 +50,24 @@ void Network::search_wifi(void)
 
 boolean Network::start_conn_wifi(const char *ssid, const char *password)
 {
-    if (WiFi.status() == WL_CONNECTED)
+    if ((WiFi.getMode() & WIFI_MODE_STA) && WiFi.status() == WL_CONNECTED &&
+        WiFi.localIP() != IPAddress(0, 0, 0, 0))
     {
         Serial.println(F("\nWiFi is OK.\n"));
-        return false;
+        return true;
     }
     
     Serial.println("");
     Serial.print(F("Connecting: "));
     Serial.print(ssid);
-    Serial.print(F(" @ "));
-    Serial.println(password);
+    Serial.println(F(" @ ********"));
 
     // 设置为STA模式并连接WIFI
-    WiFi.enableSTA(true);
+    if (!WiFi.enableSTA(true))
+    {
+        Serial.println(F("Failed to enable WiFi STA mode"));
+        return false;
+    }
     // 关闭省电模式 提升wifi功率（两个API都可以）
     // WiFi.setSleep(false);
     // esp_wifi_set_ps(WIFI_PS_NONE);
@@ -120,24 +124,31 @@ boolean Network::end_conn_wifi(void)
 
 boolean Network::close_wifi(void)
 {
+    bool result = true;
     if (WiFi.getMode() & WIFI_MODE_AP)
     {
-        WiFi.enableAP(false);
-        Serial.println(F("AP shutdowm"));
+        result = WiFi.enableAP(false) && result;
+        Serial.println(F("AP shutdown"));
     }
 
-    if (!WiFi.disconnect())
+    if (WiFi.getMode() & WIFI_MODE_STA)
     {
-        return false;
+        // disconnect失败时仍继续强制关闭STA，避免软件状态与射频状态分离。
+        if (!WiFi.disconnect(true))
+        {
+            result = WiFi.enableSTA(false) && result;
+        }
     }
-    WiFi.enableSTA(false);
-    WiFi.mode(WIFI_MODE_NULL);
+    if (WiFi.getMode() != WIFI_MODE_NULL)
+    {
+        result = WiFi.mode(WIFI_MODE_NULL) && result;
+    }
     // esp_wifi_set_inactive_time(ESP_IF_ETH, 10); //设置暂时休眠时间
     // esp_wifi_get_ant(wifi_ant_config_t * config);                   //获取暂时休眠时间
     // WiFi.setSleep(WIFI_PS_MIN_MODEM);
     // WiFi.onEvent();
     Serial.println(F("WiFi disconnect"));
-    return true;
+    return result && WiFi.getMode() == WIFI_MODE_NULL;
 }
 
 boolean Network::open_ap(const char *ap_ssid, const char *ap_password)
@@ -164,7 +175,11 @@ boolean Network::open_ap(const char *ap_ssid, const char *ap_password)
         }
     }
     
-    WiFi.enableAP(true); // 配置为AP模式
+    if (!WiFi.enableAP(true)) // 配置为AP模式
+    {
+        Serial.println(F("Failed to enable WiFi AP mode"));
+        return false;
+    }
     // 修改主机名
     WiFi.setHostname(HOST_NAME);
     // WiFi.begin();

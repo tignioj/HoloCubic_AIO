@@ -155,6 +155,16 @@ static void picture_manager_message_handle(const char *from, const char *to,
         // wifi心跳维持的响应 可以不做任何处理
     }
     break;
+    case APP_MESSAGE_WIFI_CONN_FAILED:
+    case APP_MESSAGE_WIFI_AP_FAILED:
+    {
+        if (NULL != run_data && !run_data->tcp_start)
+        {
+            run_data->req_sent = false;
+            display_picture_manager_message("WiFi failed, retrying");
+        }
+    }
+    break;
     case APP_MESSAGE_GET_PARAM:
     {
         char *param_key = (char *)message;

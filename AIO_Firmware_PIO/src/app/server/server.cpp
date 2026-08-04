@@ -258,6 +258,17 @@ static void server_message_handle(const char *from, const char *to,
         // wifi心跳维持的响应 可以不做任何处理
     }
     break;
+    case APP_MESSAGE_WIFI_AP_FAILED:
+    {
+        if (NULL != run_data && !run_data->web_start)
+        {
+            run_data->req_sent = 0;
+            display_setting(
+                "WebServer Start", "Domain: holocubic", "WiFi failed", "Retrying...",
+                LV_SCR_LOAD_ANIM_NONE);
+        }
+    }
+    break;
     default:
         break;
     }

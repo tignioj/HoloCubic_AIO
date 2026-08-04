@@ -7,6 +7,7 @@
 const char *app_event_type_info[] = {"APP_MESSAGE_WIFI_CONN", "APP_MESSAGE_WIFI_AP",
                                      "APP_MESSAGE_WIFI_ALIVE", "APP_MESSAGE_WIFI_DISCONN",
                                      "APP_MESSAGE_UPDATE_TIME", "APP_MESSAGE_MQTT_DATA",
+                                     "APP_MESSAGE_WIFI_CONN_FAILED", "APP_MESSAGE_WIFI_AP_FAILED",
                                      "APP_MESSAGE_GET_PARAM", "APP_MESSAGE_SET_PARAM",
                                      "APP_MESSAGE_READ_CFG", "APP_MESSAGE_WRITE_CFG",
                                      "APP_MESSAGE_NONE"};
@@ -32,7 +33,13 @@ AppController::AppController(const char *name)
     pre_app_index = 0;
     // appList = new APP_OBJ[APP_MAX_NUM];
     m_wifi_status = false;
+    m_sta_connecting = false;
     m_preWifiReqMillis = GET_SYS_MILLIS();
+    m_eventListMutex = xSemaphoreCreateMutex();
+    if (NULL == m_eventListMutex)
+    {
+        Serial.println(F("[EVENT] Failed to create event-list mutex"));
+    }
 
     // 定义一个事件处理定时器
     xTimerEventDeal = xTimerCreate("Event Deal",
@@ -79,6 +86,15 @@ void AppController::Display()
 
 AppController::~AppController()
 {
+    if (NULL != xTimerEventDeal)
+    {
+        xTimerStop(xTimerEventDeal, 0);
+        xTimerDelete(xTimerEventDeal, 0);
+    }
+    if (NULL != m_eventListMutex)
+    {
+        vSemaphoreDelete(m_eventListMutex);
+    }
     rgb_stop();
 }
 
@@ -242,17 +258,24 @@ int AppController::send_to(const char *from, const char *to,
     APP_OBJ *toApp = getAppByName(to);     // 发送给谁 有可能为空
     if (type <= APP_MESSAGE_MQTT_DATA)
     {
-        // 更新事件的请求者
-        if (eventList.size() > EVENT_LIST_MAX_LENGTH)
+        if (NULL == m_eventListMutex || pdTRUE != xSemaphoreTake(m_eventListMutex, portMAX_DELAY))
         {
             return 1;
         }
+        // 更新事件的请求者
+        if (eventList.size() >= EVENT_LIST_MAX_LENGTH)
+        {
+            xSemaphoreGive(m_eventListMutex);
+            return 1;
+        }
         // 发给控制器的消息(目前都是wifi事件)
-        EVENT_OBJ new_event = {fromApp, type, message, 3, 0, 0};
+        EVENT_OBJ new_event = {fromApp, type, message, CONN_ERR_TIMEOUT + 1, 0,
+                               GET_SYS_MILLIS()};
         eventList.push_back(new_event);
         Serial.print("[EVENT]\tAdd -> " + String(app_event_type_info[type]));
         Serial.print(F("\tEventList Size: "));
         Serial.println(eventList.size());
+        xSemaphoreGive(m_eventListMutex);
     }
     else
     {
@@ -276,46 +299,74 @@ int AppController::send_to(const char *from, const char *to,
 
 int AppController::req_event_deal(void)
 {
-    // 请求事件的处理
-    for (std::list<EVENT_OBJ>::iterator event = eventList.begin(); event != eventList.end();)
+    // 先在锁内取出一个到期事件，WiFi操作和APP回调在锁外执行。
+    // 这样TimeSync等独立任务可以安全地调用send_to，也不会长时间占用互斥锁。
+    for (;;)
     {
-        if ((*event).nextRunTime > GET_SYS_MILLIS())
+        if (NULL == m_eventListMutex || pdTRUE != xSemaphoreTake(m_eventListMutex, portMAX_DELAY))
+        {
+            return 1;
+        }
+
+        std::list<EVENT_OBJ>::iterator event = eventList.begin();
+        const unsigned long now = GET_SYS_MILLIS();
+        while (event != eventList.end() && (long)((*event).nextRunTime - now) > 0)
         {
             ++event;
-            continue;
         }
-        // 后期可以拓展其他事件的处理
-        bool ret = wifi_event((*event).type);
+        if (event == eventList.end())
+        {
+            xSemaphoreGive(m_eventListMutex);
+            break;
+        }
+
+        EVENT_OBJ currentEvent = *event;
+        eventList.erase(event);
+        xSemaphoreGive(m_eventListMutex);
+
+        bool ret = wifi_event(currentEvent.type);
         if (false == ret)
         {
-            // 本事件没处理完成
-            (*event).retryCount += 1;
-            if ((*event).retryCount >= (*event).retryMaxNum)
+            currentEvent.retryCount += 1;
+            if (currentEvent.retryCount >= currentEvent.retryMaxNum)
             {
-                // 多次重试失败
-                Serial.print("[EVENT]\tDelete -> " + String(app_event_type_info[(*event).type]));
-                event = eventList.erase(event); // 删除该响应事件
-                Serial.print(F("\tEventList Size: "));
-                Serial.println(eventList.size());
+                APP_MESSAGE_TYPE failureType = APP_MESSAGE_NONE;
+                if (APP_MESSAGE_WIFI_CONN == currentEvent.type)
+                {
+                    failureType = APP_MESSAGE_WIFI_CONN_FAILED;
+                    m_sta_connecting = false;
+                }
+                else if (APP_MESSAGE_WIFI_AP == currentEvent.type)
+                {
+                    failureType = APP_MESSAGE_WIFI_AP_FAILED;
+                }
+
+                Serial.println("[EVENT]\tFailed -> " + String(app_event_type_info[currentEvent.type]));
+                if (APP_MESSAGE_NONE != failureType && NULL != currentEvent.from &&
+                    NULL != currentEvent.from->message_handle)
+                {
+                    currentEvent.from->message_handle(CTRL_NAME, currentEvent.from->app_name,
+                                                      failureType, currentEvent.info, NULL);
+                }
             }
             else
             {
-                // 下次重试
-                (*event).nextRunTime = GET_SYS_MILLIS() + 4000;
-                ++event;
+                currentEvent.nextRunTime = GET_SYS_MILLIS() + EVENT_RETRY_INTERVAL;
+                if (pdTRUE == xSemaphoreTake(m_eventListMutex, portMAX_DELAY))
+                {
+                    eventList.push_back(currentEvent);
+                    xSemaphoreGive(m_eventListMutex);
+                }
             }
             continue;
         }
         // 事件回调
-        if (NULL != (*event).from && NULL != (*event).from->message_handle)
+        if (NULL != currentEvent.from && NULL != currentEvent.from->message_handle)
         {
-            (*((*event).from->message_handle))(CTRL_NAME, (*event).from->app_name,
-                                               (*event).type, (*event).info, NULL);
+            currentEvent.from->message_handle(CTRL_NAME, currentEvent.from->app_name,
+                                              currentEvent.type, currentEvent.info, NULL);
         }
-        Serial.print("[EVENT]\tDelete -> " + String(app_event_type_info[(*event).type]));
-        event = eventList.erase(event); // 删除该响应完成的事件
-        Serial.print(F("\tEventList Size: "));
-        Serial.println(eventList.size());
+        Serial.println("[EVENT]\tComplete -> " + String(app_event_type_info[currentEvent.type]));
     }
     return 0;
 }
@@ -330,33 +381,53 @@ bool AppController::wifi_event(APP_MESSAGE_TYPE type)
     {
     case APP_MESSAGE_WIFI_CONN:
     {
-        // TODO 这里m_wifi_status判断逻辑非常混乱，需要修改
-        // 更新请求
-        // CONN_ERROR == g_network.end_conn_wifi() ||
-        if (false == m_wifi_status)
+        const bool staConnected =
+            ((WiFi.getMode() & WIFI_MODE_STA) == WIFI_MODE_STA) &&
+            (WiFi.status() == WL_CONNECTED) &&
+            (WiFi.localIP() != IPAddress(0, 0, 0, 0));
+
+        if (staConnected)
         {
-            g_network.start_conn_wifi(sys_cfg.ssid_0.c_str(), sys_cfg.password_0.c_str());
             m_wifi_status = true;
+            m_sta_connecting = false;
+            m_preWifiReqMillis = GET_SYS_MILLIS();
+            return true;
         }
-        m_preWifiReqMillis = GET_SYS_MILLIS();
-        if ((WiFi.getMode() & WIFI_MODE_STA) == WIFI_MODE_STA && CONN_SUCC != g_network.end_conn_wifi())
+
+        if ((WiFi.getMode() & WIFI_MODE_STA) != WIFI_MODE_STA)
         {
-            // 在STA模式下 并且还没连接上wifi
-            return false;
+            m_sta_connecting = false;
         }
+        if (!m_sta_connecting)
+        {
+            m_sta_connecting = g_network.start_conn_wifi(sys_cfg.ssid_0.c_str(),
+                                                         sys_cfg.password_0.c_str());
+        }
+
+        m_wifi_status = (WiFi.getMode() != WIFI_MODE_NULL);
+        m_preWifiReqMillis = GET_SYS_MILLIS();
+        return false;
     }
     break;
     case APP_MESSAGE_WIFI_AP:
     {
         // 更新请求
-        g_network.open_ap(AP_SSID);
-        m_wifi_status = true;
+        if (!g_network.open_ap(AP_SSID))
+        {
+            return false;
+        }
+        m_wifi_status = (WiFi.getMode() != WIFI_MODE_NULL);
         m_preWifiReqMillis = GET_SYS_MILLIS();
     }
     break;
     case APP_MESSAGE_WIFI_ALIVE:
     {
         // wifi开关的心跳 持续收到心跳 wifi才不会被关闭
+        if (WiFi.getMode() == WIFI_MODE_NULL)
+        {
+            m_wifi_status = false;
+            return false;
+        }
         m_wifi_status = true;
         // 更新请求
         m_preWifiReqMillis = GET_SYS_MILLIS();
@@ -364,8 +435,13 @@ bool AppController::wifi_event(APP_MESSAGE_TYPE type)
     break;
     case APP_MESSAGE_WIFI_DISCONN:
     {
-        g_network.close_wifi();
-        m_wifi_status = false; // 标志位
+        if (!g_network.close_wifi())
+        {
+            m_wifi_status = (WiFi.getMode() != WIFI_MODE_NULL);
+            return false;
+        }
+        m_wifi_status = false;
+        m_sta_connecting = false;
         // m_preWifiReqMillis = GET_SYS_MILLIS() - WIFI_LIFE_CYCLE;
     }
     break;
@@ -401,16 +477,20 @@ void AppController::app_exit()
     app_exit_flag = 0; // 退出APP
 
     // 清空该对象的所有请求
-    for (std::list<EVENT_OBJ>::iterator event = eventList.begin(); event != eventList.end();)
+    if (NULL != m_eventListMutex && pdTRUE == xSemaphoreTake(m_eventListMutex, portMAX_DELAY))
     {
-        if (appList[cur_app_index] == (*event).from)
+        for (std::list<EVENT_OBJ>::iterator event = eventList.begin(); event != eventList.end();)
         {
-            event = eventList.erase(event); // 删除该响应事件
+            if (appList[cur_app_index] == (*event).from)
+            {
+                event = eventList.erase(event);
+            }
+            else
+            {
+                ++event;
+            }
         }
-        else
-        {
-            ++event;
-        }
+        xSemaphoreGive(m_eventListMutex);
     }
 
     if (NULL != appList[cur_app_index]->exit_callback)

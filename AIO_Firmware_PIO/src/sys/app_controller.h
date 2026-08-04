@@ -12,6 +12,7 @@
 #define WIFI_LIFE_CYCLE 60000      // wifi的生命周期（60s）
 #define MQTT_ALIVE_CYCLE 1000      // mqtt重连周期
 #define EVENT_LIST_MAX_LENGTH 10   // 消息队列的容量
+#define EVENT_RETRY_INTERVAL 1000   // 事件重试间隔(ms)
 #define APP_CONTROLLER_NAME_LEN 16 // app控制器的名字长度
 
 // struct EVENT_OBJ
@@ -77,7 +78,9 @@ private:
     APP_TYPE appTypeList[APP_MAX_NUM];  // 对应APP的运行类型
     // std::list<const APP_OBJ *> app_list; // APP注册位(为了C语言可移植，放弃使用链表)
     std::list<EVENT_OBJ> eventList;   // 用来储存事件
+    SemaphoreHandle_t m_eventListMutex; // 保护跨任务访问的事件队列
     boolean m_wifi_status;            // 表示是wifi状态 true开启 false关闭
+    boolean m_sta_connecting;          // STA连接请求已发出，避免重复WiFi.begin
     unsigned long m_preWifiReqMillis; // 保存上一回请求的时间戳
     unsigned int app_num;
     boolean app_exit_flag; // 表示是否退出APP应用

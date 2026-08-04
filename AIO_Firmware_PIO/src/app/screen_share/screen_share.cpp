@@ -472,6 +472,17 @@ static void screen_message_handle(const char *from, const char *to,
         // wifi心跳
     }
     break;
+    case APP_MESSAGE_WIFI_CONN_FAILED:
+    {
+        if (NULL != run_data)
+        {
+            run_data->req_sent = 0;
+            display_screen_share(
+                "Screen Share", "-", "8081", "WiFi failed, retrying",
+                LV_SCR_LOAD_ANIM_NONE);
+        }
+    }
+    break;
     case APP_MESSAGE_GET_PARAM:
     {
         char *param_key = (char *)message;
