@@ -44,7 +44,11 @@ private:
     char buf[128];
 
 public:
-    void init();
+    // Returns false when no usable SD card is present. File operations remain
+    // safe in that state and return an empty/failed result.
+    bool init();
+
+    bool isMounted() const;
 
     void listDir(const char *dirname, uint8_t levels);
 

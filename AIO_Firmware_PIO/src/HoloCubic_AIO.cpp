@@ -175,8 +175,10 @@ void setup()
     app_controller = new AppController(); // APP控制器
 
     // 初始化wifi
-    app_controller->send_to(CTRL_NAME, SERVER_APP_NAME,
-                         APP_MESSAGE_WIFI_CONN, NULL, NULL);
+    // Request a normal STA connection through the controller. This does not
+    // start the HTTP server; WebServer is started only from its own app.
+    app_controller->send_to(CTRL_NAME, CTRL_NAME,
+                            APP_MESSAGE_WIFI_CONN, NULL, NULL);
 
     // 需要放在Setup里初始化
     if (!SPIFFS.begin(true))
@@ -214,9 +216,10 @@ void setup()
     ambLight.init(ONE_TIME_H_RESOLUTION_MODE);
 
     /*** Init micro SD-Card ***/
-    tf.init();
-
-    lv_fs_fatfs_init();
+    if (tf.init())
+    {
+        lv_fs_fatfs_init();
+    }
 
     // Update display in parallel thread.
     // BaseType_t taskLvglReturned = xTaskCreate(

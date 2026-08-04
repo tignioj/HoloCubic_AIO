@@ -33,7 +33,7 @@ static const char *get_file_basename(const char *path)
 
 
 // 声明一个互斥锁句柄（全局变量）
-SemaphoreHandle_t xSDCardMutex;
+SemaphoreHandle_t xSDCardMutex = NULL;
 // 从索引文件中加载目录，例如 "/movie/movie.txt"
 // 其中索引的内容是文件名称
 File_Info *load_files_from_index(const char* index_path, const char* index_folder)
@@ -269,6 +269,8 @@ bool safe_delete_line_from_index_file(const char* filepath, const char* filename
 
 
 bool safe_append_to_index_file(const char* filepath, const char* filenameToAppend) {
+    TF_VFS_IS_NULL(false)
+
     File readFile = tf_vfs->open(filepath, FILE_READ);
     if (readFile)
     {
@@ -364,20 +366,16 @@ void join_path(char *dst_path, const char *pre_path, const char *rear_path)
     *dst_path = 0;
 }
 
-void SdCard::init()
+bool SdCard::init()
 {
+    tf_vfs = NULL;
+
     SPIClass *sd_spi = new SPIClass(HSPI);          // another SPI
     sd_spi->begin(SD_SCK, SD_MISO, SD_MOSI, SD_SS); // Replace default HSPI pins
     if (!SD.begin(SD_SS, *sd_spi, 80000000))        // SD-Card SS pin is 15
     {
-        Serial.println("Card Mount Failed");
-        return;
-    }
-    tf_vfs = &SD;
-    xSDCardMutex = xSemaphoreCreateMutex(); // 创建互斥锁
-    if (xSDCardMutex == NULL) {
-        Serial.println("互斥锁创建失败！");
-        // while(1); // 死循环，系统无法启动
+        Serial.println("No usable SD card found; SD features are disabled");
+        return false;
     }
     uint8_t cardType = SD.cardType();
 
@@ -392,7 +390,15 @@ void SdCard::init()
     if (cardType == CARD_NONE)
     {
         Serial.println("No SD card attached");
-        return;
+        SD.end();
+        return false;
+    }
+
+    tf_vfs = &SD;
+    xSDCardMutex = xSemaphoreCreateMutex(); // 创建互斥锁
+    if (xSDCardMutex == NULL) {
+        Serial.println("互斥锁创建失败！");
+        // while(1); // 死循环，系统无法启动
     }
 
     Serial.print("SD Card Type: ");
@@ -415,6 +421,12 @@ void SdCard::init()
 
     uint64_t cardSize = SD.cardSize() / (1024 * 1024);
     Serial.printf("SD Card Size: %lluMB\n", cardSize);
+    return true;
+}
+
+bool SdCard::isMounted() const
+{
+    return tf_vfs != NULL;
 }
 
 void SdCard::listDir(const char *dirname, uint8_t levels)
@@ -687,7 +699,11 @@ void SdCard::writeFile(const char *path, const char *info)
 
 File SdCard::open(const String &path, const char *mode)
 {
-    // TF_VFS_IS_NULL(RET)
+    if (tf_vfs == NULL)
+    {
+        Serial.println("[Sys SD Card] Not mounted");
+        return File();
+    }
 
     return tf_vfs->open(path, mode);
 }
