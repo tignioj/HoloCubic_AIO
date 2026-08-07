@@ -269,6 +269,8 @@ bool safe_delete_line_from_index_file(const char* filepath, const char* filename
 
 
 bool safe_append_to_index_file(const char* filepath, const char* filenameToAppend) {
+    TF_VFS_IS_NULL(false)
+
     File readFile = tf_vfs->open(filepath, FILE_READ);
     if (readFile)
     {
@@ -364,14 +366,15 @@ void join_path(char *dst_path, const char *pre_path, const char *rear_path)
     *dst_path = 0;
 }
 
-void SdCard::init()
+bool SdCard::init()
 {
+    tf_vfs = NULL;
     SPIClass *sd_spi = new SPIClass(HSPI);          // another SPI
     sd_spi->begin(SD_SCK, SD_MISO, SD_MOSI, SD_SS); // Replace default HSPI pins
     if (!SD.begin(SD_SS, *sd_spi, 80000000))        // SD-Card SS pin is 15
     {
         Serial.println("Card Mount Failed");
-        return;
+        return false;
     }
     tf_vfs = &SD;
     xSDCardMutex = xSemaphoreCreateMutex(); // 创建互斥锁
@@ -392,7 +395,9 @@ void SdCard::init()
     if (cardType == CARD_NONE)
     {
         Serial.println("No SD card attached");
-        return;
+        tf_vfs = NULL;
+        SD.end();
+        return false;
     }
 
     Serial.print("SD Card Type: ");
@@ -415,6 +420,12 @@ void SdCard::init()
 
     uint64_t cardSize = SD.cardSize() / (1024 * 1024);
     Serial.printf("SD Card Size: %lluMB\n", cardSize);
+    return true;
+}
+
+bool SdCard::isMounted() const
+{
+    return tf_vfs != NULL;
 }
 
 void SdCard::listDir(const char *dirname, uint8_t levels)
@@ -687,7 +698,11 @@ void SdCard::writeFile(const char *path, const char *info)
 
 File SdCard::open(const String &path, const char *mode)
 {
-    // TF_VFS_IS_NULL(RET)
+    if (tf_vfs == NULL)
+    {
+        Serial.println("[Sys SD Card] Mount Failed");
+        return File();
+    }
 
     return tf_vfs->open(path, mode);
 }

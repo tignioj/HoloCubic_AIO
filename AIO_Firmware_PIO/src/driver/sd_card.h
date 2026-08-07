@@ -44,7 +44,10 @@ private:
     char buf[128];
 
 public:
-    void init();
+    // Returns true only when an SD card is present and mounted.
+    bool init();
+
+    bool isMounted() const;
 
     void listDir(const char *dirname, uint8_t levels);
 

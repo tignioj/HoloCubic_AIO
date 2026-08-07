@@ -214,9 +214,14 @@ void setup()
     ambLight.init(ONE_TIME_H_RESOLUTION_MODE);
 
     /*** Init micro SD-Card ***/
-    tf.init();
-
-    lv_fs_fatfs_init();
+    if (tf.init())
+    {
+        lv_fs_fatfs_init();
+    }
+    else
+    {
+        Serial.println("SD card unavailable, continuing without external storage");
+    }
 
     // Update display in parallel thread.
     // BaseType_t taskLvglReturned = xTaskCreate(
